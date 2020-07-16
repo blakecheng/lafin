@@ -7,6 +7,17 @@ import torch.nn.functional as F
 from .networks import InpaintGenerator, Discriminator
 from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss
 
+use_apex = False
+## Tip : 开启可以降一点显存，但是速度会变慢
+if use_apex == True:
+    try:
+        from apex.parallel import DistributedDataParallel as DDP
+        from apex.fp16_utils import *
+        from apex import amp, optimizers
+        from apex.multi_tensor_apply import multi_tensor_applier
+    except ImportError:
+        raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+
 
 
 class BaseModel(nn.Module):
@@ -64,9 +75,19 @@ class InpaintingModel(BaseModel):
         # discriminator input: [rgb(3)]
         generator = InpaintGenerator()
         discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
-        if len(config.GPU) > 1:
-            generator = nn.DataParallel(generator, config.GPU)
-            discriminator = nn.DataParallel(discriminator , config.GPU)
+        # if len(config.GPU) > 1:
+        #     generator = nn.DataParallel(generator)
+        #     discriminator = nn.DataParallel(discriminator)
+            # Apex
+        if use_apex == True:
+            generator = generator.cuda()
+            discriminator = discriminator.cuda()
+        else:
+            # generator = nn.DataParallel(generator, config.GPU)
+            # discriminator = nn.DataParallel(discriminator , config.GPU)
+            if len(config.GPU) > 1:
+                generator = nn.DataParallel(generator)
+                discriminator = nn.DataParallel(discriminator)
 
         l1_loss = nn.L1Loss()
         perceptual_loss = PerceptualLoss()
@@ -81,18 +102,23 @@ class InpaintingModel(BaseModel):
         self.add_module('perceptual_loss', perceptual_loss)
         self.add_module('style_loss', style_loss)
         self.add_module('adversarial_loss', adversarial_loss)
-
+        # Apex
+        
         self.gen_optimizer = optim.Adam(
             params=generator.parameters(),
             lr=float(config.LR),
             betas=(config.BETA1, config.BETA2)
         )
-
+        if use_apex == True:
+            generator, gen_optimizer = amp.initialize(generator, self.gen_optimizer, opt_level="O1")
+        
         self.dis_optimizer = optim.Adam(
             params=discriminator.parameters(),
             lr=float(config.LR) * float(config.D2G_LR),
             betas=(config.BETA1, config.BETA2)
         )
+        if use_apex == True:
+            discriminator, dis_optimizer = amp.initialize(discriminator, self.dis_optimizer, opt_level="O1")
 
 
 
@@ -170,17 +196,32 @@ class InpaintingModel(BaseModel):
         return outputs
 
     def backward(self, gen_loss = None, dis_loss = None):
-        dis_loss.backward()
+        # Apex
+        if use_apex == True:
+            with amp.scale_loss(dis_loss, self.dis_optimizer) as scaled_loss: scaled_loss.backward()
+        else:
+            dis_loss.backward()
         self.dis_optimizer.step()
 
-        gen_loss.backward()
+        if use_apex == True:
+            with amp.scale_loss(gen_loss, self.gen_optimizer) as scaled_loss: scaled_loss.backward()
+        else:
+            gen_loss.backward()
         self.gen_optimizer.step()
 
     def backward_joint(self, gen_loss = None, dis_loss = None):
-        dis_loss.backward()
+        # Apex
+        if use_apex == True:
+            with amp.scale_loss(dis_loss, self.dis_optimizer) as scaled_loss: scaled_loss.backward()
+        else:
+            dis_loss.backward()
         self.dis_optimizer.step()
 
-        gen_loss.backward()
+        #gen_loss.backward()
+        if use_apex == True:
+            with amp.scale_loss(gen_loss, self.gen_optimizer) as scaled_loss: scaled_loss.backward()
+        else:
+            gen_loss.backward()
         self.gen_optimizer.step()
 
 
@@ -212,7 +253,8 @@ class LandmarkDetectorModel(nn.Module):
         self.landmark_weights_path = os.path.join(config.PATH, self.name + '.pth')
 
         if len(config.GPU) > 1:
-            self.mbnet = nn.DataParallel(self.mbnet, config.GPU)
+            self.mbnet = nn.DataParallel(self.mbnet)
+            # self.mbnet = nn.DataParallel(self.mbnet, config.GPU)
 
         self.optimizer = optim.Adam(
             params=self.mbnet.parameters(),

@@ -11,11 +11,6 @@ from .metrics import PSNR
 from cv2 import circle
 from PIL import Image
 
-'''
-This repo is modified basing on Edge-Connect
-https://github.com/knazeri/edge-connect
-'''
-
 class Lafin():
     def __init__(self, config):
         self.config = config
@@ -30,8 +25,12 @@ class Lafin():
         self.debug = False
         self.model_name = model_name
 
-        self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
-        self.landmark_model = LandmarkDetectorModel(config).to(config.DEVICE)
+        # self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
+        # self.landmark_model = LandmarkDetectorModel(config).to(config.DEVICE)
+        
+        self.inpaint_model = InpaintingModel(config).cuda()
+        if config.MODEL == 3 or config.MODEL == 1:
+            self.landmark_model = LandmarkDetectorModel(config).cuda()
 
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
@@ -58,6 +57,8 @@ class Lafin():
                 self.test_dataset = Dataset(config, config.TEST_LANDMARK_IMAGE_FLIST, config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
 
             else:
+                # print(config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST)
+                # input()
                 self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST,
                                             augment=False, training=False)
 
@@ -114,11 +115,11 @@ class Lafin():
 
             progbar = Progbar(total, width=20, stateful_metrics=['epoch', 'iter'])
 
-
             for items in train_loader:
 
                 self.inpaint_model.train()
-                self.landmark_model.train()
+                if model==1 or model==3:
+                    self.landmark_model.train()
 
                 if model == 1 and self.config.AUGMENTATION_TRAIN == 1:
                     images, landmarks, masks, masks2, images_orig, landmarks_orig = self.cuda(*items)
@@ -183,7 +184,6 @@ class Lafin():
 
                     for i in range(landmarks.shape[0]):
                         landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
-
                     outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks)
                     outputs_merged = (outputs * masks) + (images * (1-masks))
 
@@ -233,8 +233,9 @@ class Lafin():
 
         model = self.config.MODEL
         total = len(self.val_dataset)
-
-        self.landmark_model.eval()
+        if model==1 or model==3:
+            self.landmark_model.eval()
+        
         self.inpaint_model.eval()
 
         progbar = Progbar(total, width=20, stateful_metrics=['it'])
@@ -268,10 +269,10 @@ class Lafin():
             progbar.add(len(images), values=logs)
 
     def test(self):
-
-        self.landmark_model.eval()
-        self.inpaint_model.eval()
         model = self.config.MODEL
+        if model==1 or model==3:
+            self.landmark_model.eval()
+        self.inpaint_model.eval()
         create_dir(self.results_path)
         cal_mean_nme = self.cal_mean_nme()
 
@@ -429,7 +430,8 @@ class Lafin():
 
     def sample(self, it=None):
         self.inpaint_model.eval()
-        self.landmark_model.eval()
+        if self.config.MODEL == 1 or self.config.MODEL == 3:
+            self.landmark_model.eval()
 
         model = self.config.MODEL
 

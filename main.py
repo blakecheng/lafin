@@ -15,13 +15,12 @@ def main(mode=None):
     Args:
         mode (int): 1: train, 2: test, 3: eval, reads from config file if not specified
     """
-
+    os.system("pwd")
     config = load_config(mode)
-
-
+    print(config.GPU)
+    
     # cuda visble devices
     os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(str(e) for e in config.GPU)
-
 
     # init device
     if torch.cuda.is_available():
@@ -53,7 +52,8 @@ def main(mode=None):
     if config.MODE == 1:
         config.print()
         print('\nstart training...\n')
-        model.train()
+        with torch.autograd.set_detect_anomaly(True):
+            model.train()
 
     # model test
     elif config.MODE == 2:
@@ -85,6 +85,7 @@ def load_config(mode=None):
         parser.add_argument('--output', type=str, help='path to the output directory')
 
     args = parser.parse_args()
+
     config_path = os.path.join(args.path, 'config.yml')
 
     # create checkpoints path if does't exist

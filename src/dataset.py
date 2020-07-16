@@ -10,6 +10,9 @@ from PIL import Image
 from scipy.misc import imread
 from skimage.color import rgb2gray
 from scipy.misc import imresize
+os.system("pwd")
+import sys
+print(sys.path)
 from .utils import create_mask
 
 
@@ -19,8 +22,8 @@ class Dataset(torch.utils.data.Dataset):
         self.config = config
         self.augment = augment
         self.training = training
-
         self.data = self.load_flist(flist)
+
         self.mask_data = self.load_flist(mask_flist)
         self.landmark_data = self.load_flist(landmark_flist)
 
@@ -182,12 +185,13 @@ class Dataset(torch.utils.data.Dataset):
     def load_flist(self, flist):
         if isinstance(flist, list):
             return flist
-
+        print("loading ： %s"%(flist))
         # flist: image file path, image directory path, text file flist path
         if isinstance(flist, str):
             if os.path.isdir(flist):
                 flist = list(glob.glob(flist + '/*.jpg')) + list(glob.glob(flist + '/*.png'))
                 flist.sort()
+                print("len is : %d "%(len(flist)))
                 return flist
 
             if os.path.isfile(flist):
