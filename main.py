@@ -25,6 +25,7 @@ def main(mode=None):
     # init device
     if torch.cuda.is_available():
         config.DEVICE = torch.device("cuda")
+        #torch.cuda.set_device(1)
         torch.backends.cudnn.benchmark = True   # cudnn auto-tuner
     else:
         config.DEVICE = torch.device("cpu")

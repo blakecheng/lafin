@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np  
 import cv2  
 import face_alignment
-
+from multiprocessing import Pool
 ## example :
 # python create_face_dataset.py 
 # --path /data/qg_data/video/data1-data2-clipped/B73A8713_78.mov 
@@ -18,10 +18,10 @@ def mkdir(path):
         os.makedirs(path)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--path', type=str, help='path to the video')
-parser.add_argument('--output', type=str, help='path to the face image')
+parser.add_argument('--path', type=str,default = '/data/chengbin/dataset/host_img', help='path to the video')
+parser.add_argument('--output', type=str, default = '/data/chengbin/dataset/host_face_lafin', help='path to the face image')
+parser.add_argument('--is_video',type=bool)
 args = parser.parse_args()
-
 
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
@@ -30,29 +30,73 @@ path = args.path
 # (filename, extension) = os.path.splitext(tempfilename)
 img_path = args.output
 mkdir(img_path)
-
-
-cap = cv2.VideoCapture(path)  
 fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
-idx = 0
-while(cap.isOpened()):  
-    ret, frame = cap.read()
-    idx += 1
-    if ret == True:
-        input_img = frame
-        preds = fa.get_landmarks(input_img)  
-        if len(preds[0])==68:
-            ## mask
-            x, y, w, h = cv2.boundingRect(np.array(preds[0]))
-            l = int(max(w,h)*1.2)
-            x = int(x-(l-w)/2)
-            y = int(y-(l-h)/2)
-            face = input_img.copy()[y:y+l,x:x+l]
-            filename = os.path.join(img_path,"%d.jpg"% idx)
-            cv2.imwrite(filename,face)
-            print("writing to %s"% filename)
-        else:
-            print("Error occured ：{}".format(idx))
+
+def get_landmark(img):
+    input_img = cv2.imread(os.path.join(path,img))
+    preds = fa.get_landmarks(input_img)
+    
+    if len(preds[0])==68:
+        ## mask
+        x, y, w, h = cv2.boundingRect(np.array(preds[0]))
+        l = int(max(w,h)*2)
+        x = int(x-(l-w)/2)
+        y = int(y-(l-h)/2)
+        face = input_img.copy()[y:y+l,x:x+l]
+        filename = os.path.join(img_path,img)
+        cv2.imwrite(filename,face)
+        print("writing to %s"% filename)
     else:
-        break
-print("end")
+        print("Error occured ：{}".format(idx))
+
+def main():
+    if args.is_video == True:
+        cap = cv2.VideoCapture(path)  
+        fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
+        idx = 0
+        
+        while(cap.isOpened()):  
+            ret, frame = cap.read()
+            idx += 1
+            if ret == True:
+                input_img = frame
+                preds = fa.get_landmarks(input_img)  
+                if len(preds[0])==68:
+                    ## mask
+                    x, y, w, h = cv2.boundingRect(np.array(preds[0]))
+                    l = int(max(w,h)*2)
+                    x = int(x-(l-w)/2)
+                    y = int(y-(l-h)/2)
+                    face = input_img.copy()[y:y+l,x:x+l]
+                    filename = os.path.join(img_path,"%d.jpg"% idx)
+                    cv2.imwrite(filename,face)
+                    print("writing to %s"% filename)
+                else:
+                    print("Error occured ：{}".format(idx))
+            else:
+                break
+        print("end")
+    else:
+        imgs = os.listdir(path)
+        print(imgs)
+
+        # pool=Pool(10)
+        # pool.map(get_landmark,imgs)
+        # pool.close()
+        # pool.join()
+    
+        
+        for img in imgs:
+            try:
+                get_landmark(img)
+            except:
+                print("Error when detecting %s"%img)
+
+if __name__ == '__main__':
+    main()
+       
+        
+                          
+
+
+    # %%

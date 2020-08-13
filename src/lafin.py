@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from .dataset import Dataset
-from .models import LandmarkDetectorModel, InpaintingModel
+from .models import LandmarkDetectorModel, InpaintingModel, RefineModel
 from .utils import Progbar, create_dir, stitch_images, imsave
 from .metrics import PSNR
 from cv2 import circle
@@ -29,11 +29,14 @@ class Lafin():
         # self.landmark_model = LandmarkDetectorModel(config).to(config.DEVICE)
         
         self.inpaint_model = InpaintingModel(config).cuda()
+        
         if config.MODEL == 3 or config.MODEL == 1:
             self.landmark_model = LandmarkDetectorModel(config).cuda()
 
+
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
+        
 
         #train mode
         if self.config.MODE == 1:
@@ -43,22 +46,18 @@ class Lafin():
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
 
             elif self.config.MODEL == 2:
-
                 self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_INPAINT_LANDMARK_FLIST,
                                              config.TRAIN_MASK_FLIST, augment=True, training=True)
                 self.val_dataset = Dataset(config, config.VAL_INPAINT_IMAGE_FLIST, config.VAL_INPAINT_LANDMARK_FLIST,
                                            config.TEST_MASK_FLIST, augment=True, training=True)
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
-
-
+                
+           
         # test mode
         if self.config.MODE == 2:
             if self.config.MODEL == 1:
                 self.test_dataset = Dataset(config, config.TEST_LANDMARK_IMAGE_FLIST, config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
-
             else:
-                # print(config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST)
-                # input()
                 self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST,
                                             augment=False, training=False)
 
@@ -74,12 +73,12 @@ class Lafin():
 
         self.log_file = os.path.join(config.PATH, 'log_' + model_name + '.dat')
 
+    ### todo
     def load(self):
         if self.config.MODEL == 1:
             if self.config.AUGMENTATION_TRAIN == 1:
                 self.inpaint_model.load()
             self.landmark_model.load()
-
         elif self.config.MODEL == 2:
             self.inpaint_model.load()
 
@@ -87,6 +86,7 @@ class Lafin():
             self.landmark_model.load()
             self.inpaint_model.load()
 
+    ### todo
     def save(self):
         if self.config.MODEL == 1:
             self.landmark_model.save()
@@ -109,6 +109,9 @@ class Lafin():
         model = self.config.MODEL
         max_iteration = int(float((self.config.MAX_ITERS)))
         total = len(self.train_dataset)
+        
+   
+        
         while(keep_training):
             epoch += 1
             print('\n\nTraining epoch: %d' % epoch)
@@ -195,8 +198,8 @@ class Lafin():
 
                     self.inpaint_model.backward(gen_loss, dis_loss)
                     iteration = self.inpaint_model.iteration
-
-
+                
+       
                 if iteration >= max_iteration:
                     keep_training = False
                     break
@@ -491,6 +494,7 @@ class Lafin():
                 img_per_row = image_per_row
             )
         elif model == 2:
+            #print(images.shape,inputs.shape,outputs.shape,outputs_merged.shape)
             images = stitch_images(
                 self.postprocess(images),
                 self.postprocess(inputs),

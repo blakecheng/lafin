@@ -13,10 +13,10 @@ def mkdir(path):
     if not folder:                   #判断是否存在文件夹如果不存在则创建为文件夹
         os.makedirs(path)
 
-SourceImgPath = "/data/qg_data/results"  # 视频读取路径
+SourceImgPath = "/data/qg_data/video/data1-data2-clipped"  # 视频读取路径
 vedionamelist = os.listdir(SourceImgPath)  # 获得所有视频名字列表
 
-ImgWritePath = "/data/qg_data/Obama_img"  # 图像保存路径
+ImgWritePath = "/data/qg_data/host_img"  # 图像保存路径
 img_end = ".jpg"
 img_start = 0
 

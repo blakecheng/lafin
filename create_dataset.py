@@ -59,7 +59,18 @@ def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
         
         input_img = cv2.imread(os.path.join(path,file_name))
         
-        preds = fa.get_landmarks(input_img)
+        try:
+            if input_img==None:
+                print("Error occured when loading: \n %s" % os.path.join(path,file_name))
+                continue
+        except:
+            pass
+
+        try:
+            preds = fa.get_landmarks(input_img)
+        except:
+            continue
+
         if preds==None:
             print("Can't detect landmark from pic showed blow")
 #             tmp_path = path+"_no_landmark"
@@ -71,7 +82,7 @@ def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
            
         
         
-        x, y, w, h = cv2.boundingRect(np.array(preds[0][3:14,:]))
+        x, y, w, h = cv2.boundingRect(np.array(preds[0]))
         mask_img = cv2.rectangle(input_img.copy(), (x, y), (x + w, y + h), (255, 255, 255), -1)
         mask = cv2.rectangle(np.zeros(input_img.shape,input_img.dtype), (x, y), (x + w, y + h), (255, 255, 255), -1)
        
@@ -123,7 +134,7 @@ def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
 #                 tmp_path = path+"_no_landmark"
 #                 mkdir(tmp_path)
 #                 command("mv {}/{} {}/{}".format(img_dir,filename,tmp_path,filename))
-                SHOW([to_plt(img)])
+#                SHOW([to_plt(img)])
                 continue
             
             for i in range(68):
@@ -140,8 +151,9 @@ def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
     print("images : {} , masks : {} , landmarks : {} ".format(len(os.listdir(img_dir)),len(os.listdir(mask_dir)),len(os.listdir(landmark_dir))))
 
 
-def create_dataset(nums,img_dir,mask_dir,landmark_dir,output_path):
+def create_dataset(nums,img_dir,mask_dir,landmark_dir,output_path,mode="relative"):
     files = os.listdir(img_dir)
+    ext = os.path.splitext(files[0])[1]
     files = [os.path.splitext(i)[0] for i in files]
     file_num = len(files)
     file_nums = [int(i*file_num) for i in nums]
@@ -165,28 +177,30 @@ def create_dataset(nums,img_dir,mask_dir,landmark_dir,output_path):
     
     
     
-    def create_flist(img_dir, mask_dir, landmark_dir, input_files,output_path):
+    def create_flist(img_dir, mask_dir, landmark_dir, input_files,output_path,ext = ".jpg",mode="relative"):
         images = []
         masks = []
         landmarks =[]
         for file in input_files:
-            images.append(os.path.join(img_dir, file)+".jpg")
-            masks.append(os.path.join(mask_dir, file)+".png")
-            landmarks.append(os.path.join(landmark_dir, file)+".txt")
+            if mode == "relative":
+                images.append(file + ext)
+                masks.append(file +".png")
+                landmarks.append( file +".txt")
+            else:
+                images.append(os.path.join(img_dir, file)+ ext)
+                masks.append(os.path.join(mask_dir, file)+".png")
+                landmarks.append(os.path.join(landmark_dir, file)+".txt")
         images = sorted(images)
         masks = sorted(masks)
         landmarks = sorted(landmarks)
-
-    #     debuglist = [images[0],masks[0],landmarks[0]]
-    #     print([os.path.exists(file) for file in debuglist])
 
         np.savetxt(os.path.join(output_path,"images.flist"), images, fmt='%s')
         np.savetxt(os.path.join(output_path,"masks.flist"), masks, fmt='%s')
         np.savetxt(os.path.join(output_path,"landmarks.flist"), landmarks, fmt='%s')
         
-    create_flist(img_dir,mask_dir,landmark_dir,filedict['train'],os.path.join(output_path,"train"))
-    create_flist(img_dir,mask_dir,landmark_dir,filedict['val'],os.path.join(output_path,"val"))
-    create_flist(img_dir,mask_dir,landmark_dir,filedict['test'],os.path.join(output_path,"test"))
+    create_flist(img_dir,mask_dir,landmark_dir,filedict['train'],os.path.join(output_path,"train"),ext=ext,mode=mode)
+    create_flist(img_dir,mask_dir,landmark_dir,filedict['val'],os.path.join(output_path,"val"),ext=ext,mode=mode)
+    create_flist(img_dir,mask_dir,landmark_dir,filedict['test'],os.path.join(output_path,"test"),ext=ext,mode=mode)
     
 def create_config(dataset_path,target_path,example_path='config.yml'):
    

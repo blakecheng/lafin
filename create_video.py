@@ -35,23 +35,28 @@ class VideoWriter:
 def main():
     width = 1024
     height = 256
+    num = 200
     
     import os
-    root_path = "/home/public/cb/code/lafin/checkpoints/real_data_face/all_results/inpaint"
+    root_path = "/data/chengbin/code/lafin/checkpoints/Obama_face_10_train/Obama_face/results/inpaint"
     path = os.path.join(root_path,"joint")
     files = os.listdir(path)
     ext = os.path.splitext(files[0])[1]
     names = [int(os.path.splitext(file)[0]) for file in files]
     names.sort()
     files = ["%s%s"%(str(name),ext) for name in names]
-    
-    vw = VideoWriter('test.avi', width, height)
-    
+    print(files)
+    vw = VideoWriter(os.path.join(root_path,'test.avi'), width, height)
+
+    count = 0
     for file in files:
         print("loading: %s" % os.path.join(path,file))
         frame = cv2.imread(os.path.join(path,file))
         # 写入图像
         vw.write(frame)
+        count += 1
+        if count == num:
+            break 
     # 关闭
     vw.close()
 

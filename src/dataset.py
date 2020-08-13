@@ -17,15 +17,20 @@ from .utils import create_mask
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, config, flist, landmark_flist, mask_flist, augment=True, training=True):
+    def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True):
         super(Dataset, self).__init__()
         self.config = config
         self.augment = augment
         self.training = training
+        
         self.data = self.load_flist(flist)
-
         self.mask_data = self.load_flist(mask_flist)
         self.landmark_data = self.load_flist(landmark_flist)
+        
+        if root is not None:
+            self.data = [os.path.join(root,i) for i in self.data]
+            self.mask_data = [os.path.join(root,i) for i in self.mask_data]
+            self.landmark_data = [os.path.join(root,i) for i in self.landmark_data]
 
         self.input_size = config.INPUT_SIZE
         self.mask = config.MASK
@@ -38,8 +43,17 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-
-        item = self.load_item(index)
+        try:
+            item = self.load_item(index)
+        except:
+            print("loading the %d th data error"%index)
+            while True:
+                index = random.randint(0, len(self) - 1)
+                try:
+                    item = self.load_item(index)
+                    break
+                except:
+                    print("loading the %d th data error"%index)
         return item
 
     def load_name(self, index):
