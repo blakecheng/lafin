@@ -2,8 +2,196 @@ import torch
 import torch.nn as nn
 import math
 import torch.nn.functional as F
-from .face_modules.model import Backbone
-from .faceshifter.aei import *
+# from .face_modules.model import Backbone
+# from .faceshifter.aei import *
+
+
+import torch.nn.functional as F
+from torch import nn
+import torch
+
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        m.weight.data.normal_(0, 0.001)
+        m.bias.data.zero_()
+    if isinstance(m, nn.Conv2d):
+        nn.init.xavier_normal_(m.weight.data)
+
+    if isinstance(m, nn.ConvTranspose2d):
+        nn.init.xavier_normal_(m.weight.data)
+#########################################################
+def conv(c_in, c_out, norm=nn.BatchNorm2d):
+    return nn.Sequential(
+        nn.Conv2d(in_channels=c_in, out_channels=c_out, kernel_size=4, stride=2, padding=1, bias=False),
+        norm(c_out),
+        nn.LeakyReLU(0.1, inplace=True)
+    )
+
+class conv_transpose(nn.Module):
+    def __init__(self, c_in, c_out, norm=nn.BatchNorm2d):
+        super(conv_transpose, self).__init__()
+        self.conv_t = nn.ConvTranspose2d(in_channels=c_in, out_channels=c_out, kernel_size=4, stride=2, padding=1, bias=False)
+        self.bn = norm(c_out)
+        self.lrelu = nn.LeakyReLU(0.1, inplace=True)
+
+    def forward(self, input, skip):
+        x = self.conv_t(input)
+        x = self.bn(x)
+        x = self.lrelu(x)
+        return x,torch.cat((x, skip), dim=1)
+
+
+# Multilayer Attributes Encoder
+class MAE(nn.Module):
+    def __init__(self):
+        super(MAE, self).__init__()
+        self.conv1 = conv(3, 32)
+        self.conv2 = conv(32, 64)
+        self.conv3 = conv(64, 128)
+        self.conv4 = conv(128, 256)
+        self.conv5 = conv(256, 512)
+        self.conv6 = conv(512, 1024)
+        self.conv7 = conv(1024, 1024)
+
+        self.conv_t1 = conv_transpose(1024, 1024)
+        self.conv_t2 = conv_transpose(1024, 512)
+        self.conv_t3 = conv_transpose(512, 256)
+        self.conv_t4 = conv_transpose(256, 128)
+        self.conv_t5 = conv_transpose(128, 64)
+        self.conv_t6 = conv_transpose(64, 32)
+
+        self.apply(init_weights)
+
+    def forward(self, Xt):    # in 3*256256
+        enc1 = self.conv1(Xt) # 32，128，128
+        enc2 = self.conv2(enc1) # 64，64，64
+        enc3 = self.conv3(enc2) # 128，32，32
+        enc4 = self.conv4(enc3) # 256，16，16
+        enc5 = self.conv5(enc4) # 512，8，8
+        enc6 = self.conv6(enc5) # 1024,4,4
+        #print([i.shape for i in [enc1,enc2,enc3,enc4,enc5,enc6]])
+        
+        z_att1 = self.conv7(enc6)
+        dec1, z_att2 = self.conv_t1(z_att1, enc6)
+        dec2, z_att3 = self.conv_t2(dec1, enc5)
+        dec3, z_att4 = self.conv_t3(dec2, enc4)
+        dec4, z_att5 = self.conv_t4(dec3, enc3)
+        dec5, z_att6 = self.conv_t5(dec4, enc2)
+        dec6, z_att7 = self.conv_t6(dec5, enc1)
+
+        z_att8 = F.interpolate(z_att7, scale_factor=2, mode='bilinear', align_corners=True)
+
+        return z_att1, z_att2, z_att3, z_att4, z_att5, z_att6, z_att7, z_att8
+
+########################################
+    
+class ADD(nn.Module):
+    def __init__(self, c_x, c_att, c_id):
+        super(ADD, self).__init__()
+
+        self.c_x = c_x
+
+        self.h_conv = nn.Conv2d(in_channels=c_x, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
+
+        self.att_conv1 = nn.Conv2d(in_channels=c_att, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+        self.att_conv2 = nn.Conv2d(in_channels=c_att, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+
+        self.id_fc1 = nn.Linear(c_id, c_x) # c_id 256, c_x 3
+        self.id_fc2 = nn.Linear(c_id, c_x)
+
+        self.norm = nn.InstanceNorm2d(c_x, affine=False)
+
+    def forward(self, h, z_att, z_id):
+        h_norm = self.norm(h)
+        
+        att_beta = self.att_conv1(z_att)
+        att_gamma = self.att_conv2(z_att)
+        
+#         print([i.shape for i in [h_norm,att_beta,att_beta]])
+#         print(z_id.shape)
+
+        id_beta = self.id_fc1(z_id)
+        id_gamma = self.id_fc2(z_id)
+#         print(id_beta.shape,id_gamma.shape)
+
+        id_beta = id_beta.reshape(h_norm.shape[0], self.c_x, 1, 1).expand_as(h_norm)
+        id_gamma = id_gamma.reshape(h_norm.shape[0], self.c_x, 1, 1).expand_as(h_norm)
+
+        M = torch.sigmoid(self.h_conv(h_norm))
+        A = att_gamma * h_norm + att_beta
+        I = id_gamma * h_norm + id_beta
+
+        return (torch.ones_like(M).to(M.device) - M) * A + M * I
+
+
+class ADDResBlk(nn.Module):
+    def __init__(self, c_in, c_out, c_att, c_id):
+        super(ADDResBlk, self).__init__()
+
+        self.c_in = c_in
+        self.c_out = c_out
+
+        self.add1 = ADD(c_in, c_att, c_id)
+        self.conv1 = self.conv(c_in, c_in)
+        self.add2 = ADD(c_in, c_att, c_id)
+        self.conv2 = self.conv(c_in, c_out)
+
+        if c_in != c_out:
+            self.add3 = ADD(c_in, c_att, c_id)
+            self.conv3 = self.conv(c_in, c_out)
+
+    def forward(self, h, z_att, z_id):
+        x = self.add1(h, z_att, z_id)
+#         print(x.shape)
+        x = self.conv1(x)
+        x = self.add1(x, z_att, z_id)
+        x = self.conv2(x)
+        if self.c_in != self.c_out:
+            h = self.add3(h, z_att, z_id)
+            h = self.conv3(h)
+
+        return x + h
+    
+    def conv(self,c_in, c_out):
+        return nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=c_in, out_channels=c_out, kernel_size=3, stride=1, padding=1, bias=False),
+        )
+
+
+class ADDGenerator(nn.Module):
+    def __init__(self, c_id=256):
+        super(ADDGenerator, self).__init__()
+        self.conv_t = nn.ConvTranspose2d(in_channels=c_id, out_channels=1024, kernel_size=2, stride=1, padding=0, bias=False)
+        self.add1 = ADDResBlk(1024, 1024, 1024, c_id)
+        self.add2 = ADDResBlk(1024, 1024, 2048, c_id)
+        self.add3 = ADDResBlk(1024, 1024, 1024, c_id)
+        self.add4 = ADDResBlk(1024, 512, 512, c_id)
+        self.add5 = ADDResBlk(512, 256, 256, c_id)
+        self.add6 = ADDResBlk(256, 128, 128, c_id)
+        self.add7 = ADDResBlk(128, 64, 64, c_id)
+        self.add8 = ADDResBlk(64, 3, 64, c_id)
+
+        self.apply(init_weights)
+
+    def forward(self, z_att, z_id):
+        x = self.conv_t(z_id.reshape(z_id.shape[0], -1, 1, 1))
+        x = self.add1(x, z_att[0], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add2(x, z_att[1], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add3(x, z_att[2], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add4(x, z_att[3], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add5(x, z_att[4], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add6(x, z_att[5], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add7(x, z_att[6], z_id)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.add8(x, z_att[7], z_id)
+        return torch.tanh(x)
 
 
 class BaseNetwork(nn.Module):
@@ -88,5 +276,9 @@ class faceshifter_sin(BaseNetwork):
         return outputs
     
 if __name__ == "__main__":
-    model = faceshifter_sin().cuda()
-    model(torch.rand(2,3,256,256).cuda(),torch.rand(2,1,256,256).cuda(),torch.rand(2,1,256,256).cuda())
+    # model = faceshifter_sin().cuda()
+    # model(torch.rand(2,3,256,256).cuda(),torch.rand(2,1,256,256).cuda(),torch.rand(2,1,256,256).cuda())
+    mae = MAE()
+    zatt = mae(torch.rand(1,3,256,256))
+    addg = ADDGenerator()
+    addg(zatt,torch.rand(1,256))
