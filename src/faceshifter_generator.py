@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 import math
 import torch.nn.functional as F
-# from .face_modules.model import Backbone
-# from .faceshifter.aei import *
+from .face_modules.model import Backbone
 
 
 import torch.nn.functional as F
 from torch import nn
 import torch
+
+import random
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
@@ -43,9 +44,9 @@ class conv_transpose(nn.Module):
 
 # Multilayer Attributes Encoder
 class MAE(nn.Module):
-    def __init__(self):
+    def __init__(self,c_in=3):
         super(MAE, self).__init__()
-        self.conv1 = conv(3, 32)
+        self.conv1 = conv(c_in, 32)
         self.conv2 = conv(32, 64)
         self.conv3 = conv(64, 128)
         self.conv4 = conv(128, 256)
@@ -228,57 +229,60 @@ class BaseNetwork(nn.Module):
 
 
 
-
-
-
-class faceshifter_sin(BaseNetwork):
-    def __init__(self, image_size=256,init_weights=True):
-        super(faceshifter_sin, self).__init__()
-
+class faceshifter_fe(BaseNetwork):
+    def __init__(self, image_size=256,init_weights=True,same_prob=1):
+        super(faceshifter_fe, self).__init__()
         arcface = Backbone(50, 0.6, 'ir_se').cuda()
         arcface.eval()
-        arcface.load_state_dict(torch.load('src/saved_models/model_ir_se50.pth'), strict=False)
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
         self.arcface = arcface
-        self.G = AEI_Net(c_id=512)
-        self.G.train()
-        
+        self.lm_autoencoder = MAE(c_in=1)
+        self.generator = ADDGenerator(c_id=512)
         self.image_size = image_size
         if init_weights:
             self.init_weights()
+        self.same_prob=same_prob
 
 
     def forward(self,images,landmarks,masks):
-        images_masked = (images * (1 - masks).float()) + masks
-        inputs = torch.cat((images_masked, landmarks), dim=1)
-        
+
         batch_size = images.shape[0]
-        if batch_size<=1:
-            print("batch size should be larger than 1")
-            exit
         image_size = self.image_size
-        
-        
+        # if batch_size<=1:
+        #     print("batch size should be larger than 1")
+        #     exit
+
+        is_the_same = (torch.rand(batch_size)< self.same_prob).long().cuda()
+        img_index = torch.arange(batch_size).cuda()
+        drive_index = img_index*is_the_same.long() + ((img_index+1)%batch_size)*(1-is_the_same).long()
+        drive_landmark = landmarks[drive_index]
+
         with torch.no_grad():
             resize_img = F.interpolate(images, [112, 112], mode='bilinear', align_corners=True)
-            # print(resize_img.shape,images.shape)
-            # print( self.arcface)
-            
-            X_embed, X_feats = self.arcface(resize_img)
+            zid, X_feats = self.arcface(resize_img)
 
-        #resize_inputs = F.interpolate(inputs, [112, 112], mode='bilinear', align_corners=True)
-        outputs , Xt_attr = self.G(inputs, X_embed)
-        
-        # index = torch.randperm(batch_size).cuda()
-        # ref_x = x[index]
-        # ref_masks = masks[index]
-        # ref_landmarks = landmarks[index]
-        # ref_X_embed, ref_X_feats = X_embed[index], X_feats[index]
-        return outputs
+        zatt = self.lm_autoencoder(drive_landmark)
+        outputs = self.generator(zatt,zid)
+
+        with torch.no_grad():
+            resize_img = F.interpolate(images, [112, 112], mode='bilinear', align_corners=True)
+            out_id, X_feats = self.arcface(resize_img)
+
+        return outputs,is_the_same,drive_landmark,zid,out_id
+
+    
     
 if __name__ == "__main__":
     # model = faceshifter_sin().cuda()
     # model(torch.rand(2,3,256,256).cuda(),torch.rand(2,1,256,256).cuda(),torch.rand(2,1,256,256).cuda())
-    mae = MAE()
-    zatt = mae(torch.rand(1,3,256,256))
-    addg = ADDGenerator()
-    addg(zatt,torch.rand(1,256))
+    # mae = MAE()
+    # zatt = mae(torch.rand(1,3,256,256))
+    # addg = ADDGenerator(c_id=512)
+    # arcface = Backbone(50, 0.6, 'ir_se')
+    # arcface.eval()
+    # zid,_ = arcface(torch.rand(1,3,112,112))
+    # output = addg(zatt,zid)
+    # print(output.shape)
+
+    model = faceshifter_fe().cuda()
+    model(torch.rand(1,3,256,256).cuda(),torch.rand(1,1,256,256).cuda(),torch.rand(1,1,256,256).cuda())

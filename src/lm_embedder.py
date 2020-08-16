@@ -10,7 +10,7 @@ from imageio import imread
 from skimage.color import rgb2gray
 import numpy as np
 import torchvision
-from oneshot_facereencatment import pretrained_embedder
+from .oneshot_facereencatment import new_embedder
 import torch.optim as optim
 import torch.nn as nn
 import torch
@@ -179,6 +179,7 @@ class Dataset(torch.utils.data.Dataset):
 def write_log(log_file, logs):
     with open(log_file, 'a') as f:
         f.write('%s\n' % logs)
+
 
 if __name__ == "__main__":
 
