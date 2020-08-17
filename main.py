@@ -25,7 +25,7 @@ def main(mode=None):
     # init device
     if torch.cuda.is_available():
         config.DEVICE = torch.device("cuda")
-        #torch.cuda.set_device(1)
+        torch.cuda.set_device(3)
         torch.backends.cudnn.benchmark = True   # cudnn auto-tuner
     else:
         config.DEVICE = torch.device("cpu")
@@ -77,7 +77,7 @@ def load_config(mode=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', '--checkpoints', type=str, default='./checkpoints', help='model checkpoints path (default: ./checkpoints)')
     parser.add_argument('--model', type=int, choices=[1, 2, 3], help='1: landmark prediction model, 2: inpaint model, 3: joint model')
-    parser.add_argument('--data', type=str, help='path to data')
+    parser.add_argument('--data_path', type=str, help='path to data')
     # test mode
     if mode == 2:
         parser.add_argument('--input', type=str, help='path to the input images directory or an input image')
@@ -86,6 +86,7 @@ def load_config(mode=None):
         parser.add_argument('--output', type=str, help='path to the output directory')
 
     args = parser.parse_args()
+    
 
     config_path = os.path.join(args.path, 'config.yml')
 
@@ -100,6 +101,10 @@ def load_config(mode=None):
     # load config file
     config = Config(config_path)
 
+    if args.data_path is not None:
+        config.DATA_ROOT = args.data_path
+
+        
     # train mode
     if mode == 1:
         config.MODE = 1
