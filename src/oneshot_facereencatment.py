@@ -147,3 +147,15 @@ class fr_Encoder(nn.Module):
 
 
 
+class new_embedder(nn.Module):
+    def __init__(self):
+        super(new_embedder, self).__init__()
+        self.Lm_encoder = Encoder(1,3).cuda()
+        self.Fm_encoder = Encoder(3,5).cuda()
+    
+    def forward(self,imgs,landmarks):
+        return self.Fm_encoder(imgs),self.Lm_encoder(landmarks)
+
+
+
+    
