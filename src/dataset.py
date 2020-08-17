@@ -27,10 +27,12 @@ class Dataset(torch.utils.data.Dataset):
         self.mask_data = self.load_flist(mask_flist)
         self.landmark_data = self.load_flist(landmark_flist)
         
+        print("data root is ", root)
         if root is not None:
-            self.data = [os.path.join(root,i) for i in self.data]
-            self.mask_data = [os.path.join(root,i) for i in self.mask_data]
-            self.landmark_data = [os.path.join(root,i) for i in self.landmark_data]
+            self.data = [os.path.join(root,"images",i) for i in self.data]
+            self.mask_data = [os.path.join(root,"masks",i) for i in self.mask_data]
+            self.landmark_data = [os.path.join(root,"landmarks",i) for i in self.landmark_data]
+        
 
         self.input_size = config.INPUT_SIZE
         self.mask = config.MASK

@@ -41,24 +41,24 @@ class Lafin():
         #train mode
         if self.config.MODE == 1:
             if self.config.MODEL == 1 :
-                self.train_dataset = Dataset(config,config.TRAIN_LANDMARK_IMAGE_FLIST, config.TRAIN_LANDMARK_LANDMARK_FLIST, config.TRAIN_MASK_FLIST, augment=True,training=True)
-                self.val_dataset = Dataset(config,config.TEST_LANDMARK_IMAGE_FLIST,config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, augment=True, training=True)
+                self.train_dataset = Dataset(config,config.TRAIN_LANDMARK_IMAGE_FLIST, config.TRAIN_LANDMARK_LANDMARK_FLIST, config.TRAIN_MASK_FLIST, root = config.DATA_ROOT,augment=True,training=True)
+                self.val_dataset = Dataset(config,config.TEST_LANDMARK_IMAGE_FLIST,config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
 
             elif self.config.MODEL == 2:
                 self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_INPAINT_LANDMARK_FLIST,
-                                             config.TRAIN_MASK_FLIST, augment=True, training=True)
+                                             config.TRAIN_MASK_FLIST,  root = config.DATA_ROOT, augment=True, training=True)
                 self.val_dataset = Dataset(config, config.VAL_INPAINT_IMAGE_FLIST, config.VAL_INPAINT_LANDMARK_FLIST,
-                                           config.TEST_MASK_FLIST, augment=True, training=True)
+                                           config.TEST_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
                 
            
         # test mode
         if self.config.MODE == 2:
             if self.config.MODEL == 1:
-                self.test_dataset = Dataset(config, config.TEST_LANDMARK_IMAGE_FLIST, config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
+                self.test_dataset = Dataset(config, config.TEST_LANDMARK_IMAGE_FLIST, config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST,  root = config.DATA_ROOT,augment=False, training=False)
             else:
-                self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST,
+                self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST, root = config.DATA_ROOT,
                                             augment=False, training=False)
 
 

@@ -28,6 +28,8 @@ from linear_attention_transformer import ImageLinearAttention
 from PIL import Image
 from pathlib import Path
 
+from .oneshot_facereencatment import fr_Encoder
+
 try:
     from apex import amp
     APEX_AVAILABLE = True
@@ -673,9 +675,139 @@ class stylegan_L2I_Generator2(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
+    
 
 
 
+
+# class Landmark_guided_inpaintor(nn.Module):
+#     def __init__(self):
+#         super(Landmark_guided_inpaintor, self).__init__()
+#         Lencoder = Encoder(in_c=1,depth=3)
+        
+#     def forward:
+#         pass
+
+
+class ref_guided_inpaintor(BaseNetwork):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+        super().__init__()
+        
+        self.image_size = image_size
+        self.latent_dim = latent_dim
+        
+        if num_layers == None:
+            self.num_layers = int(log2(image_size) - 1)
+        else:
+            self.num_layers = num_layers
+        
+        ## stylegan e
+        
+        num_init_filters = 6
+        blocks = []
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
+        print(filters)
+        
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        quantize_blocks = []
+        attn_blocks = []
+
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            is_not_last = ind != (len(chan_in_out) - 1)
+
+            block = DiscriminatorBlock(in_chan, out_chan, downsample = is_not_last)
+            blocks.append(block)
+
+            attn_fn = attn_and_ff(out_chan) if num_layer in attn_layers else None
+
+            attn_blocks.append(attn_fn)
+
+            #quantize_fn = PermuteToFrom(VectorQuantize(out_chan, fq_dict_size)) if num_layer in fq_layers else None
+            #quantize_blocks.append(quantize_fn)
+            
+        self.e_blocks = nn.ModuleList(blocks)
+        self.e_attn_blocks = nn.ModuleList(attn_blocks)
+        self.lm_encoder = fr_Encoder(in_c=1,depth=3)            
+        
+        ### stylegan g
+        
+        filters = [network_capacity * (2 ** (i)) for i in range(self.num_layers)][::-1]
+        print(filters)
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        init_channels = filters[0]
+        filters = [init_channels, *filters]
+        in_out_pairs = zip(filters[:-1], filters[1:])
+
+        self.g_blocks = nn.ModuleList([])
+        self.g_attns = nn.ModuleList([])
+        
+        for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
+            not_first = ind != 0
+            not_last = ind != (self.num_layers - 1)
+            num_layer = self.num_layers - ind
+
+            attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
+
+            self.g_attns.append(attn_fn)
+ 
+            block = GeneratorBlock(
+                latent_dim,
+                in_chan,
+                out_chan,
+                upsample = not_first,
+                upsample_rgb = not_last,
+                rgba = transparent
+            )
+            self.g_blocks.append(block)
+        
+        #self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+        self.style_depth = style_depth
+        
+    def forward(self,x,landmarks, masks):
+        
+        
+        batch_size = x.shape[0]
+        image_size = self.image_size
+        
+        index = torch.randperm(batch_size).cuda()
+        ref_image = x[index]
+        
+        images_masked = (x * (1 - masks).float()) + masks
+        x = torch.cat((images_masked, ref_image), dim=1)
+        
+        
+        # style固定，noise不固定
+        input_noise = image_noise(batch_size, image_size)
+        
+        lz = self.lm_encoder(landmarks)
+        lz = lz.view(batch_size,1,self.latent_dim)
+        styles = lz.expand(-1,self.style_depth,-1)
+
+        for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
+            x = block(x)
+            
+            if attn_block is not None:
+                x = attn_block(x)
+
+
+        styles = styles.transpose(0, 1)
+
+        rgb = None
+        for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
+            if attn is not None:
+                x = attn(x)
+            x, rgb = block(x, rgb, style, input_noise)
+        
+        return rgb
+
+
+##################################################################################
 ## AE correct
 class stylegan_L2I_Generator_AE(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
@@ -690,7 +822,7 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 4
+        num_init_filters = 1
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         
@@ -781,9 +913,8 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
         return rgb
     
 
-    
-class stylegan_L2I_Generator_AE_split(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, mid_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
         super().__init__()
         
         self.image_size = image_size
@@ -795,7 +926,7 @@ class stylegan_L2I_Generator_AE_split(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 4
+        num_init_filters = 1
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         
@@ -856,16 +987,20 @@ class stylegan_L2I_Generator_AE_split(BaseNetwork):
                 rgba = transparent
             )
             self.g_blocks.append(block)
-      
+
         self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
-    def forward(self, x):
-        
+    def forward(self, x , input_noise=None):
+    
         batch_size = x.shape[0]
         image_size = self.image_size
         
         # style固定，noise不固定
-        input_noise = image_noise(batch_size, image_size)
+        if input_noise==None:
+            input_noise = image_noise(batch_size, image_size)
+        else:
+            input_noise = input_noise
+            
         styles = self.single_style.expand(batch_size, -1, -1)
 
         for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
@@ -884,6 +1019,10 @@ class stylegan_L2I_Generator_AE_split(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
+    
+
+    
+########################################################################################################################################################################################################################################################################################################################################
 
 # AE
 class stylegan_L2I_Generator3(BaseNetwork):
