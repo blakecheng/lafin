@@ -2,10 +2,12 @@ opencv_python==4.1.2.30
 scipy==1.2.0
 scikit_image==0.14.2
 torchvision==0.2.1
-torch==1.0.1.post2
+torch==1.2.0
 matplotlib==3.0.3
 numpy==1.15.4
-face_alignment==1.0.1
+face_alignment
 Pillow==6.2.1
-PyYAML==5.1.2
-skimage==0.0
+fire
+adamp
+vector_quantize_pytorch
+linear_attention_transformer
