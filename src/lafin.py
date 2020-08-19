@@ -10,6 +10,8 @@ from .utils import Progbar, create_dir, stitch_images, imsave
 from .metrics import PSNR
 from cv2 import circle
 from PIL import Image
+from torch.utils.tensorboard import SummaryWriter
+import torchvision
 
 class Lafin():
     def __init__(self, config):
@@ -36,10 +38,11 @@ class Lafin():
 
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
+        self.writer = SummaryWriter(os.path.join(config.PATH, 'logs'))
         
 
         #train mode
-        if self.config.MODE == 1:
+        if self.config.MODE == 1 or self.config.MODE == 3:
             if self.config.MODEL == 1 :
                 self.train_dataset = Dataset(config,config.TRAIN_LANDMARK_IMAGE_FLIST, config.TRAIN_LANDMARK_LANDMARK_FLIST, config.TRAIN_MASK_FLIST, root = config.DATA_ROOT,augment=True,training=True)
                 self.val_dataset = Dataset(config,config.TEST_LANDMARK_IMAGE_FLIST,config.TEST_LANDMARK_LANDMARK_FLIST, config.TEST_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
@@ -209,6 +212,99 @@ class Lafin():
                     ("iter", iteration),
                 ] + logs
 
+                
+                progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
+                
+                # log model at checkpoints
+                if self.config.LOG_INTERVAL and iteration % self.config.LOG_INTERVAL == 0:
+                    self.log(logs)
+                # sample model at checkpoints
+                if self.config.SAMPLE_INTERVAL and iteration % self.config.SAMPLE_INTERVAL == 0:
+                    self.sample()
+                # evaluate model at checkpoints
+                if self.config.EVAL_INTERVAL and iteration % self.config.EVAL_INTERVAL == 0 and self.config.MODEL == 2:
+                    print('\nstart eval...\n')
+                    self.eval()
+                # save model at checkpoints
+                if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
+                    self.save()
+        print('\nEnd training....')
+        
+    
+    def train_finetune(self):
+        train_loader = DataLoader(
+            dataset=self.train_dataset,
+            batch_size=self.config.BATCH_SIZE,
+            num_workers=4,
+            drop_last=True,
+            shuffle=True
+        )
+
+        epoch = 0
+        keep_training = True
+        model = self.config.MODEL
+        max_iteration = int(float((self.config.MAX_ITERS)))
+        total = len(self.train_dataset)
+        
+        
+        
+        while(keep_training):
+            epoch += 1
+            print('\n\nTraining epoch: %d' % epoch)
+
+            progbar = Progbar(total, width=20, stateful_metrics=['epoch', 'iter'])
+
+            for items in train_loader:
+
+                self.inpaint_model.train()
+                if model==1 or model==3:
+                    self.landmark_model.train()
+
+                if model == 1 and self.config.AUGMENTATION_TRAIN == 1:
+                    images, landmarks, masks, masks2, images_orig, landmarks_orig = self.cuda(*items)
+                else:
+                    images, landmarks, masks = self.cuda(*items)
+
+                landmarks[landmarks >= self.config.INPUT_SIZE] = self.config.INPUT_SIZE - 1
+                landmarks[landmarks < 0] = 0
+
+                if model == 2:
+                    landmarks[landmarks>=self.config.INPUT_SIZE] = self.config.INPUT_SIZE-1
+                    landmarks[landmarks<0] = 0
+
+                    landmark_map = torch.zeros((self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
+
+                    for i in range(landmarks.shape[0]):
+                        landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
+                    outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks)
+                    outputs_merged = (outputs * masks) + (images * (1-masks))
+
+                    psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
+                    mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
+
+                    logs.append(('psnr', psnr.item()))
+                    logs.append(('mae', mae.item()))
+                    self.inpaint_model.backward_fintune(gen_loss,dis_loss,self.config.UPDATE_MODE)
+
+                    iteration = self.inpaint_model.iteration
+                else:
+                    print("model type must be 2")
+                
+       
+                if iteration >= max_iteration:
+                    keep_training = False
+                    break
+
+                logs = [
+                    ("epoch", epoch),
+                    ("iter", iteration),
+                ] + logs
+                
+                self.writer.add_scalar("train_refine/gloss",gen_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train_refine/dloss",dis_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train_refine/psnr",psnr.item(),iteration)
+                self.writer.add_scalar("train_refine/mae",mae.item(),iteration)
+                
                 progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
 
                 # log model at checkpoints
@@ -225,6 +321,9 @@ class Lafin():
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
         print('\nEnd training....')
+        
+        
+    
 
     def eval(self):
         val_loader = DataLoader(
@@ -268,6 +367,11 @@ class Lafin():
                 logs.append(('psnr', psnr.item()))
                 logs.append(('mae', mae.item()))
 
+            self.writer.add_scalar("eval/gloss",gen_loss.cpu().item(),iteration)
+            self.writer.add_scalar("eval/dloss",dis_loss.cpu().item(),iteration)
+            self.writer.add_scalar("eval/psnr",psnr.item(),iteration)
+            self.writer.add_scalar("eval/mae",mae.item(),iteration)
+            
             logs = [("it", iteration), ] + logs
             progbar.add(len(images), values=logs)
 
@@ -476,7 +580,10 @@ class Lafin():
             outputs = self.inpaint_model(images, landmark_map, masks)
             outputs_merged = (outputs * masks) + (images * (1 - masks))
 
-
+            
+            grid = torchvision.utils.make_grid(outputs_merged)
+            self.writer.add_image('sample_images', grid, iteration)
+            
         if it is not None:
             iteration = it
 
@@ -494,7 +601,6 @@ class Lafin():
                 img_per_row = image_per_row
             )
         elif model == 2:
-            #print(images.shape,inputs.shape,outputs.shape,outputs_merged.shape)
             images = stitch_images(
                 self.postprocess(images),
                 self.postprocess(inputs),
@@ -510,6 +616,7 @@ class Lafin():
         create_dir(path)
         print('\nsaving sample ' + name)
         images.save(name)
+        
 
 
     def log(self, logs):

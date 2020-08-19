@@ -25,7 +25,7 @@ def main(mode=None):
     # init device
     if torch.cuda.is_available():
         config.DEVICE = torch.device("cuda")
-        torch.cuda.set_device(3)
+        torch.cuda.set_device(0)
         torch.backends.cudnn.benchmark = True   # cudnn auto-tuner
     else:
         config.DEVICE = torch.device("cpu")
@@ -60,6 +60,10 @@ def main(mode=None):
     elif config.MODE == 2:
         print('\nstart testing...\n')
         model.test()
+        
+    elif config.MODE == 3:
+        print('\nstart training finetune...\n')
+        model.train_finetune()
 
     # eval mode
     else:

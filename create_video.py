@@ -35,18 +35,23 @@ class VideoWriter:
 def main():
     width = 1024
     height = 256
+    
     num = 200
+    # root_path = "/data/chengbin/code/lafin/checkpoints/Obama_face_10_train/Obama_face/results/inpaint"
+    root_path = "/home/public/cb/code/lafin_bak/checkpoints/celebahq-stylegan-256-ae-4layers/results/inpaint"
+    output_path = 'Obama_inpainting.avi'
+    fps = 1 
     
     import os
-    root_path = "/data/chengbin/code/lafin/checkpoints/Obama_face_10_train/Obama_face/results/inpaint"
+   
     path = os.path.join(root_path,"joint")
     files = os.listdir(path)
     ext = os.path.splitext(files[0])[1]
     names = [int(os.path.splitext(file)[0]) for file in files]
     names.sort()
     files = ["%s%s"%(str(name),ext) for name in names]
-    print(files)
-    vw = VideoWriter(os.path.join(root_path,'test.avi'), width, height)
+
+    vw = VideoWriter(os.path.join(root_path,output_path), width, height,fps)
 
     count = 0
     for file in files:

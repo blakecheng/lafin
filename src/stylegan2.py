@@ -28,7 +28,7 @@ from linear_attention_transformer import ImageLinearAttention
 from PIL import Image
 from pathlib import Path
 
-from .oneshot_facereencatment import fr_Encoder
+# from .oneshot_facereencatment import fr_Encoder
 
 try:
     from apex import amp
@@ -822,7 +822,7 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 1
+        num_init_filters = 4
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         

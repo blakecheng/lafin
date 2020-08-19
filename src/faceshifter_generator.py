@@ -230,9 +230,9 @@ class BaseNetwork(nn.Module):
         self.apply(init_func)
 
 
-class faceshifter_inpainting(BaseNetwork):
+class faceshifter_inpaintor(BaseNetwork):
     def __init__(self, image_size=256,IE_pretrained=True,init_weights=True):
-        super(faceshifter_inpainting, self).__init__()
+        super(faceshifter_inpaintor, self).__init__()
         self.IE_pretrained = IE_pretrained
         if IE_pretrained == True:
             arcface = Backbone(50, 0.6, 'ir_se').cuda()
@@ -250,7 +250,7 @@ class faceshifter_inpainting(BaseNetwork):
         if self.IE_pretrained == True:
             with torch.no_grad():
                 resize_img = F.interpolate(refimages, [112, 112], mode='bilinear', align_corners=True)
-                zid, X_feats = self.arcface(resize_img)
+                zid, X_feats = self.Idencoder(resize_img)
             return zid, X_feats
 
     def forward(self,images,refimages):

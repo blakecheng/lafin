@@ -11,6 +11,7 @@ from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Genera
 from .stylegan2 import ref_guided_inpaintor
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
+from .faceshifter_generator import faceshifter_inpaintor
 # from .faceshifter_generator import faceshifter_sin
 
 
@@ -156,11 +157,11 @@ class InpaintingModel(BaseModel):
             print("USE resunet generator!")
             print("#####################\n")
             generator = MultiScaleResUNet(in_nc=4,out_nc=3)
-        elif self.inpaint_type == "faceshifter_sin":
+        elif self.inpaint_type == "faceshifter_inpaintor_selfref":
             print("#####################")
-            print("USE faceshifter generator!")
+            print("USE faceshifter inpaintor!")
             print("#####################\n")
-            #generator = faceshifter_sin()
+            generator = faceshifter_inpaintor()
         elif self.inpaint_type == "ref_guided":
             print("#####################")
             print("USE ref_guided generator!")
@@ -300,8 +301,13 @@ class InpaintingModel(BaseModel):
             outputs = self.generator(landmarks)
         elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
             outputs = self.generator(landmarks,images)
-        elif "faceshifter" in self.inpaint_type:
+        elif self.inpaint_type == "faceshifter" :
             outputs = self.generator(images,landmarks,masks)
+        elif  self.inpaint_type == "faceshifter_inpaintor_selfref":
+            images_masked = (images * (1 - masks).float()) + masks
+            inputs = torch.cat((images_masked, landmarks,masks), dim=1)
+            ref_images = flip(images,dim=1)
+            outputs,z_id,out_id = self.generator(inputs,ref_images)
         elif "ref_guided" in self.inpaint_type:
             outputs = self.generator(images,landmarks,masks)
         else:
@@ -327,6 +333,31 @@ class InpaintingModel(BaseModel):
         else:
             gen_loss.backward(retain_graph=True)
         self.gen_optimizer.step()
+        
+        
+    def backward_fintune(self, gen_loss = None, dis_loss = None, update_mode=None):
+        # Apex
+        
+        if update_mode == "freezeD":
+            if use_apex == True:
+                with amp.scale_loss(gen_loss, self.gen_optimizer) as scaled_loss: scaled_loss.backward()
+            else:
+                gen_loss.backward(retain_graph=True)
+            self.gen_optimizer.step()
+        else:
+            if use_apex == True:
+                with amp.scale_loss(dis_loss, self.dis_optimizer) as scaled_loss: scaled_loss.backward()
+            else:
+                dis_loss.backward(retain_graph=True)
+            self.dis_optimizer.step()
+
+            if use_apex == True:
+                with amp.scale_loss(gen_loss, self.gen_optimizer) as scaled_loss: scaled_loss.backward()
+            else:
+                gen_loss.backward(retain_graph=True)
+            self.gen_optimizer.step()
+            
+        
 
     def backward_joint(self, gen_loss = None, dis_loss = None):
         # Apex
@@ -343,10 +374,11 @@ class InpaintingModel(BaseModel):
             gen_loss.backward()
         self.gen_optimizer.step()
 
-
-
-
-
+def flip(x, dim):
+    indices = [slice(None)] * x.dim()
+    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1,
+                                dtype=torch.long, device=x.device)
+    return x[tuple(indices)]
 
 from .networks import MobileNetV2
 
