@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from .networks import InpaintGenerator, Discriminator
 from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
-from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in
+from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
 from .stylegan2 import ref_guided_inpaintor
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
@@ -81,7 +81,7 @@ class InpaintingModel(BaseModel):
         self.is_local = False
         if hasattr(config, 'LOCAL'):
             self.is_local = config.LOCAL
-            print("local mode")
+            print("local mode：{}".format(config.LOCAL))
         # generator input: [rgb(3) + landmark(1)]
         # discriminator input: [rgb(3)]
         
@@ -128,6 +128,15 @@ class InpaintingModel(BaseModel):
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
             generator = stylegan_L2I_Generator_AE_landmark_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
+        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
+            print("#####################")
+            print("USE stylegan generator, AE landmark and arcfaceid!")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            num_layers = config.NUM_LAYERS
+            network_capacity = config.NETWORK_CAPACITY
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
         elif self.inpaint_type == "stylegan2_unet": 
             print("#####################")
             print("USE stylegan generator, unet!")
@@ -151,7 +160,7 @@ class InpaintingModel(BaseModel):
             print("#####################")
             print("USE faceshifter generator!")
             print("#####################\n")
-            generator = faceshifter_sin()
+            #generator = faceshifter_sin()
         elif self.inpaint_type == "ref_guided":
             print("#####################")
             print("USE ref_guided generator!")
@@ -287,8 +296,10 @@ class InpaintingModel(BaseModel):
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks), dim=1)
             outputs = self.generator(inputs)
-        elif self.inpaint_type == "s2_ae_landmark_in":
+        elif self.inpaint_type == "s2_ae_landmark_in" :
             outputs = self.generator(landmarks)
+        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
+            outputs = self.generator(landmarks,images)
         elif "faceshifter" in self.inpaint_type:
             outputs = self.generator(images,landmarks,masks)
         elif "ref_guided" in self.inpaint_type:

@@ -9,7 +9,6 @@ import time
 import cv2
 from tqdm import tqdm
 from src.lm_embedder import *
-torch.cuda.set_device(6)
 
 batch_size = 1
 lr_G = 4e-4
@@ -54,8 +53,8 @@ cfg = config()
 #     "/data/chengbin/celeba/celeba-hq/celeba-1024-lafin/landmarks.flist")
 
 train_dataset = Dataset(cfg,
-    "/home/chengbin/code/lafin_school/checkpoints/Obama_face/images.flist",
-    "/home/chengbin/code/lafin_school/checkpoints/Obama_face/landmarks.flist")
+    "/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin/images.flist",
+    "/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin/landmarks.flist")
 
 train_loader = DataLoader(
             dataset=train_dataset,

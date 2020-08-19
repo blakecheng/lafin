@@ -81,9 +81,9 @@ class OptimizedBlock(nn.Module):
 
 
 
-class fr_Encoder(nn.Module):
+class Normal_Encoder(nn.Module):
     def __init__(self, in_c, depth = 5, num_features=64, activation=F.leaky_relu, nf_max = 512):
-        super(fr_Encoder, self).__init__()
+        super(Normal_Encoder, self).__init__()
         self.num_features = num_features
         self.activation = activation
         

@@ -11,6 +11,8 @@ import torch
 
 import random
 
+from .oneshot_facereencatment import Normal_Encoder
+
 def init_weights(m):
     if isinstance(m, nn.Linear):
         m.weight.data.normal_(0, 0.001)
@@ -228,6 +230,45 @@ class BaseNetwork(nn.Module):
         self.apply(init_func)
 
 
+class faceshifter_inpainting(BaseNetwork):
+    def __init__(self, image_size=256,IE_pretrained=True,init_weights=True):
+        super(faceshifter_inpainting, self).__init__()
+        self.IE_pretrained = IE_pretrained
+        if IE_pretrained == True:
+            arcface = Backbone(50, 0.6, 'ir_se').cuda()
+            arcface.eval()
+            arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+            self.Idencoder = arcface
+        
+        self.lm_autoencoder = MAE(c_in=5)
+        self.generator = ADDGenerator(c_id=512)
+        self.image_size = image_size
+        if init_weights:
+            self.init_weights()
+   
+    def Id_forward(self,refimages):
+        if self.IE_pretrained == True:
+            with torch.no_grad():
+                resize_img = F.interpolate(refimages, [112, 112], mode='bilinear', align_corners=True)
+                zid, X_feats = self.arcface(resize_img)
+            return zid, X_feats
+
+    def forward(self,images,refimages):
+        batch_size = images.shape[0]
+        image_size = self.image_size
+        if batch_size<=1:
+            print("batch size should be larger than 1")
+            exit
+        
+        z_id, X_feats = self.Id_forward(refimages)
+        
+        zatt = self.lm_autoencoder(images)
+        outputs = self.generator(zatt,z_id)
+
+        out_id, X_feats = self.Id_forward(refimages)
+            
+        return outputs,z_id,out_id
+
 
 class faceshifter_fe(BaseNetwork):
     def __init__(self, image_size=256,init_weights=True,same_prob=1):
@@ -265,7 +306,7 @@ class faceshifter_fe(BaseNetwork):
         outputs = self.generator(zatt,zid)
 
         with torch.no_grad():
-            resize_img = F.interpolate(images, [112, 112], mode='bilinear', align_corners=True)
+            resize_img = F.interpolate(outputs, [112, 112], mode='bilinear', align_corners=True)
             out_id, X_feats = self.arcface(resize_img)
 
         return outputs,is_the_same,drive_landmark,zid,out_id

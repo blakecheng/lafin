@@ -3,6 +3,7 @@ from datetime import datetime
 import time
 import sys
 import threading
+import yaml
 
 
 def copy_file(obs_path, cache_path):
@@ -46,13 +47,38 @@ def mkdir(path):
         os.makedirs(path)
 
 
+def create_config(dataset_path, target_path, example_path='config.yml'):
+    mkdir(target_path)
+
+    f = open(example_path)
+    config = yaml.load(f)
+
+    config['TRAIN_INPAINT_IMAGE_FLIST'] = dataset_path + "/train/images.flist"
+    config['TRAIN_INPAINT_LANDMARK_FLIST'] = dataset_path + "/train/landmarks.flist"
+    config['TRAIN_MASK_FLIST'] = dataset_path + "/train/masks.flist"
+
+    config['TEST_INPAINT_IMAGE_FLIST'] = dataset_path + "/test/images.flist"
+    config['TEST_INPAINT_LANDMARK_FLIST'] = dataset_path + "/test/landmarks.flist"
+    config['TEST_MASK_FLIST'] = dataset_path + "/test/masks.flist"
+
+    config['VAL_INPAINT_IMAGE_FLIST'] = dataset_path + "/val/images.flist"
+    config['VAL_INPAINT_LANDMARK_FLIST'] = dataset_path + "/val/landmarks.flist"
+    config['VAL_MASK_FLIST'] = dataset_path + "/val/masks.flist"
+
+    fr = open(os.path.join(target_path, 'config.yml'), 'w')
+    yaml.dump(config, fr)
+    fr.close()
+    print(target_path)
+    print("done")
+
+
+
+
 if __name__ == "__main__":
     os.system("pwd ; ls")
     mode = "remote"
 
     start = time.time()
-
-
 
     if mode == "remote":
         import moxing as mox
@@ -61,23 +87,22 @@ if __name__ == "__main__":
         code_path = "/cache/user-job-dir/code"
 
         s3data_path = "s3://bucket-8613/chengbin/dataset/ffhq-lafin"
-
         data_path = "/cache/user-job-dir/code/ffhq-lafin"
-
 
         suffix = time.strftime("%b%d%H%M")
         dataset_path = "datasets/ffhq-all-%s"%(suffix)
-        checkpoint_path = "remote_checkpoints/ffhq-all-%s"%(suffix)
-
+        checkpoint_path = "remote_checkpoints/ffhq-all-face-ae-lm-in-%s"%(suffix)
+        mkdir(checkpoint_path)
 
         copy_dataset(s3code_path, code_path)
         copy_dataset(s3data_path, data_path)
 
-        mkdir(checkpoint_path)
-
         sys.path.insert(0, code_path)  # "home/work/user-job-dir/" + leaf folder of src code
         os.chdir(code_path)
         os.system("pwd")
+
+        ######################################################################
+        create_config("datasets/FFHQr", checkpoint_path, "celeba_hq_ae_lm_in_config.yml")
 
         t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,s3code_path+"/" + checkpoint_path,))
         t.start()
@@ -85,26 +110,26 @@ if __name__ == "__main__":
         t = threading.Thread(target=show_nvidia)
         t.start()
 
+
         os.system("pwd ; ls")
         os.system("df -h")
         # /cache/user-job-dir/code/ffhq-lafin:
         os.system("pip install -r requirements.txt")
-        os.system("mkdir -p /home/work/.torch/models/")
-        os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.torch/models/")
+
+        ## 某些情况
+        #os.system("mkdir -p /home/work/.torch/models/")
+        #os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.torch/models/")
+        ## 另一些情况
+        os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
+        os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
+
         os.system("python create_dataset.py --pic %s --dataset %s --checkpoint %s"%(
             data_path,dataset_path,checkpoint_path
         ))
-        os.system("python train.py --model 2 --checkpoints %s"%(checkpoint_path))
+        os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,data_path))
         copy_dataset(checkpoint_path, s3code_path+"/" + checkpoint_path)
 
 
 
-    elif mode == "local":
-        suffix = time.strftime("%b%d%H%M")
-        data_path = '/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin'
-        dataset_path = 'datasets/celeba1024-all-%s' % suffix
-        checkpoint_path = 'checkpoints/celeba1024-all-%s' % suffix
-        os.system("python create_dataset.py --pic {} --dataset {} --checkpoint {}".format(data_path,dataset_path,checkpoint_path))
-        os.system("python train.py --model 2 --checkpoints {}".format(checkpoint_path))
 
 
