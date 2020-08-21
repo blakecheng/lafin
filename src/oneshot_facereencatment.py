@@ -80,6 +80,68 @@ class OptimizedBlock(nn.Module):
 
 
 
+class fr_Encoder(nn.Module):
+    def __init__(self, in_c, depth = 5, num_features=64, activation=F.leaky_relu, nf_max = 512):
+        super(fr_Encoder, self).__init__()
+        self.num_features = num_features
+        self.activation = activation
+        
+        ch = [min(nf_max, num_features * (2 ** i)) for i in range(depth)]
+        
+        blocklist = []
+        init_block = OptimizedBlock(in_c, num_features) # 128
+        blocklist.append(init_block)
+        
+        for i in range(depth-1):
+            block = Block(ch[i], ch[i+1],
+                            activation=activation, downsample=True) 
+            blocklist.append(block)
+        
+        self.blocks = nn.ModuleList(blocklist)
+        self.L = utils.spectral_norm(nn.Linear(ch[-1], 512))
+        
+        self.init_weights()
+        
+    def forward(self, x):
+        for block in self.blocks:
+            x = block(x)
+            
+        h = self.activation(x)
+        # Global pooling
+        h = torch.sum(h, dim=(2, 3))
+        h = self.activation(h)   # 512
+        out = self.L(h)
+        
+        return out
+    
+    def init_weights(self, init_type='normal', gain=0.02):
+        '''
+        initialize network's weights
+        init_type: normal | xavier | kaiming | orthogonal
+        https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/9451e70673400885567d08a9e97ade2524c700d0/models/networks.py#L39
+        '''
+
+        def init_func(m):
+            classname = m.__class__.__name__
+            if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+                if init_type == 'normal':
+                    nn.init.normal_(m.weight.data, 0.0, gain)
+                elif init_type == 'xavier':
+                    nn.init.xavier_normal_(m.weight.data, gain=gain)
+                elif init_type == 'kaiming':
+                    nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+                elif init_type == 'orthogonal':
+                    nn.init.orthogonal_(m.weight.data, gain=gain)
+
+                if hasattr(m, 'bias') and m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0.0)
+
+            elif classname.find('BatchNorm2d') != -1:
+                nn.init.normal_(m.weight.data, 1.0, gain)
+                nn.init.constant_(m.bias.data, 0.0)
+
+        self.apply(init_func)
+
 
 class Normal_Encoder(nn.Module):
     def __init__(self, in_c, depth = 5, num_features=64, activation=F.leaky_relu, nf_max = 512):

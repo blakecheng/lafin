@@ -10,14 +10,58 @@ from imageio import imread
 from skimage.color import rgb2gray
 import numpy as np
 import torchvision
-from .oneshot_facereencatment import new_embedder
 import torch.optim as optim
 import torch.nn as nn
 import torch
 
-class Dataset(torch.utils.data.Dataset):
+## head2head dataset
+class paired_Dataset(torch.utils.data.Dataset):
+    def __init__(self, config_dic):
+        super(paired_Dataset, self).__init__()
+        
+        self.clips = os.path.listdir(config_dic["root_dir"])
+        self.frames = [os.path.listdir(os.path.join(config_dic["root_dir"],clip)) for clip in self.clips]
+        self.clip_count = [len(i) for i in]
+        
+        self.data = 
+        
+        
+    
+    
+    def __getitem__(self,index):
+        
+        
+    
+    def load_flist(self, flist):
+        if isinstance(flist, list):
+            return flist
+        print("loading ： %s"%(flist))
+        # flist: image file path, image directory path, text file flist path
+        if isinstance(flist, str):
+            if os.path.isdir(flist):
+                flist = list(glob.glob(flist + '/*.jpg')) + list(glob.glob(flist + '/*.png'))
+                flist.sort()
+                print("len is : %d "%(len(flist)))
+                return flist
+
+            if os.path.isfile(flist):
+                try:
+                    return np.genfromtxt(flist, dtype=np.str, encoding='utf-8')
+                except Exception as e:
+                    print(e)
+                    return [flist]
+        return []
+    
+    def __len__(self):
+        return len(self.data)
+        
+
+
+
+
+class unpaired_Dataset(torch.utils.data.Dataset):
     def __init__(self, config, flist, landmark_flist, root=None,augment=True, training=True):
-        super(Dataset, self).__init__()
+        super(unpaired_Dataset, self).__init__()
         self.config = config
         self.augment = augment
         self.training = training
@@ -28,12 +72,10 @@ class Dataset(torch.utils.data.Dataset):
         if root is not None:
             self.data = [os.path.join(root,i) for i in self.data]
             self.landmark_data = [os.path.join(root,i) for i in self.landmark_data]
-
+            
         self.input_size = config.INPUT_SIZE
 
-        # in test mode, there's a one-to-one relationship between mask and image
        
-
     def __len__(self):
         return len(self.data)
 
@@ -54,6 +96,7 @@ class Dataset(torch.utils.data.Dataset):
     def load_name(self, index):
         name = self.data[index]
         return os.path.basename(name)
+    
 
     def load_item(self, index):
 
@@ -80,8 +123,7 @@ class Dataset(torch.utils.data.Dataset):
                 img[i][img[i]>1] = 1
                 
         return self.to_tensor(img), torch.from_numpy(landmark).long()
-
-
+    
 
     def load_lmk(self, target_shape, index, size_before, center_crop = True):
 
@@ -175,88 +217,3 @@ class Dataset(torch.utils.data.Dataset):
         else:
             parts = parts[pairs,...]
         return parts
-
-def write_log(log_file, logs):
-    with open(log_file, 'a') as f:
-        f.write('%s\n' % logs)
-
-
-if __name__ == "__main__":
-
-    from tqdm import tqdm
-    class config():
-        def __init__(self):
-            self.INPUT_SIZE = 256
-            self.LANDMARK_POINTS = 68
-            self.BATCH_SIZE = 8
-            self.LR = 0.00001
-            self.BETA1 = 0.0
-            self.BETA2 = 0.9
-            self.loss = "triplet"
-    
-    torch.cuda.set_device(5)
-    cfg = config()
-    train_dataset = Dataset(cfg,
-        "/data/chengbin/celeba/celeba-hq/celeba-1024-lafin/images.flist",
-        "/data/chengbin/celeba/celeba-hq/celeba-1024-lafin/landmarks.flist")
-    
-    train_loader = DataLoader(
-            dataset=train_dataset,
-            batch_size=cfg.BATCH_SIZE,
-            num_workers=4,
-            shuffle=True,
-            drop_last=True
-        )
-
-    embedder = new_embedder()
-    optimizer = optim.Adam(
-                params=embedder.parameters(),
-                lr=float(cfg.LR),
-                betas=(cfg.BETA1, cfg.BETA2)
-            )
-    
-    
-    if cfg.loss == "l1":
-        loss_function = nn.L1Loss()
-    elif cfg.loss == "triplet":
-        loss_function = nn.TripletMarginLoss(margin=0.5)
-
-    for ep in range(1000):
-        pbar = tqdm(train_loader,ncols=100)
-        for items in pbar:
-            optimizer.zero_grad()
-            imgs,landmarks = (item.cuda() for item in items)
-            landmarks[landmarks >= cfg.INPUT_SIZE] = cfg.INPUT_SIZE - 1
-            landmarks[landmarks < 0] = 0
-            landmark_map = torch.zeros((cfg.BATCH_SIZE,1,cfg.INPUT_SIZE,cfg.INPUT_SIZE)).cuda()
-            for i in range(landmarks.shape[0]):
-                landmark_map[i,0,landmarks[i,0:cfg.LANDMARK_POINTS,1],landmarks[i,0:cfg.LANDMARK_POINTS,0]] = 1
-            fe,le = embedder(imgs,landmark_map)
-            if cfg.loss == "l1":
-                loss = loss_function(fe,le)
-            elif cfg.loss == "triplet":
-                # batch_size = le.shape[0]
-                # index = torch.randperm(batch_size).cuda()
-                # neg_le = le[index]
-                output_anchors = le[0]
-                output_positives  = fe[0]
-                output_negatives  = fe[1:]
-                # print([i.shape for i in [output_anchors,output_positives,output_negatives]])
-                output_anchors = output_anchors.unsqueeze(0).expand_as(output_negatives).contiguous()
-                output_positives = output_positives.unsqueeze(0).expand_as(output_negatives).contiguous()
-                output_negatives = output_negatives.contiguous()
-
-                loss = loss_function(output_anchors,output_positives,output_negatives)
-            loss.backward()
-            optimizer.step()
-            log = "{}\t{}".format(ep,loss.data.cpu())
-            write_log("log_{}.dat".format(cfg.loss),log)
-            pbar.set_description("loss:{}".format(loss.data.cpu()))
-        
-        if ep % 20 == 0:
-            torch.save({
-                'ep': ep,
-                'fm_encoder': embedder.Fm_encoder.state_dict(),
-                'lm_encoder': embedder.Lm_encoder.state_dict(),
-            },"checkpoint_{}.pth".format(cfg.loss)
-        )

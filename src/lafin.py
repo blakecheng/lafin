@@ -320,6 +320,17 @@ class Lafin():
                 # save model at checkpoints
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
+                    
+                if epoch<10:
+                    torch.save({
+                        'iteration': self.inpaint_model.iteration,
+                        'generator': self.inpaint_model.generator.state_dict()
+                    }, self.inpaint_model.gen_weights_path+"e_%d"%epoch)
+
+                    torch.save({
+                        'discriminator': self.inpaint_model.discriminator.state_dict()
+                    }, self.inpaint_model.dis_weights_path+"e_%d"%epoch)
+                    
         print('\nEnd training....')
         
         
@@ -629,6 +640,7 @@ class Lafin():
     def postprocess(self, img):
         # [0, 1] => [0, 255]
         img = img * 255.0
+        img = torch.clamp(img,0,255)
         img = img.permute(0, 2, 3, 1)
         return img.int()
 

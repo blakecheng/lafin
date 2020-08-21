@@ -28,7 +28,7 @@ from linear_attention_transformer import ImageLinearAttention
 from PIL import Image
 from pathlib import Path
 
-# from .oneshot_facereencatment import fr_Encoder
+from .oneshot_facereencatment import fr_Encoder
 
 try:
     from apex import amp
@@ -769,14 +769,15 @@ class ref_guided_inpaintor(BaseNetwork):
         #self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         self.style_depth = style_depth
         
-    def forward(self,x,landmarks, masks):
+    def forward(self,x,landmarks, masks, ref_image=None):
         
         
         batch_size = x.shape[0]
         image_size = self.image_size
         
-        index = torch.randperm(batch_size).cuda()
-        ref_image = x[index]
+        if ref_image == None:
+            index = torch.randperm(batch_size).cuda()
+            ref_image = x[index]
         
         images_masked = (x * (1 - masks).float()) + masks
         x = torch.cat((images_masked, ref_image), dim=1)
