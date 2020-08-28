@@ -29,6 +29,7 @@ from PIL import Image
 from pathlib import Path
 
 from .oneshot_facereencatment import fr_Encoder
+from .res_unet import MultiScaleResUNet
 
 try:
     from apex import amp
@@ -389,7 +390,6 @@ class GeneratorBlock(nn.Module):
 
         rgb = self.to_rgb(x, prev_rgb, istyle)
         return x, rgb
-
 
 
 class DiscriminatorBlock(nn.Module):
@@ -1141,6 +1141,142 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
+    
+
+class stylegan_ae_facereenactment(BaseNetwork):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+        super().__init__()
+        from .face_modules.model import Backbone
+        arcface = Backbone(50, 0.6, 'ir_se').cuda()
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        
+        self.image_size = image_size
+        self.latent_dim = latent_dim
+        self.style_depth = style_depth
+        if num_layers == None:
+            self.num_layers = int(log2(image_size) - 1)
+        else:
+            self.num_layers = num_layers
+        
+        ## stylegan e
+        
+        num_init_filters = 1
+        blocks = []
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
+        
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        quantize_blocks = []
+        attn_blocks = []
+
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            is_not_last = ind != (len(chan_in_out) - 1)
+
+            block = DiscriminatorBlock(in_chan, out_chan, downsample = is_not_last)
+            blocks.append(block)
+
+            attn_fn = attn_and_ff(out_chan) if num_layer in attn_layers else None
+
+            attn_blocks.append(attn_fn)
+
+            #quantize_fn = PermuteToFrom(VectorQuantize(out_chan, fq_dict_size)) if num_layer in fq_layers else None
+            #quantize_blocks.append(quantize_fn)
+            
+        self.e_blocks = nn.ModuleList(blocks)
+        self.e_attn_blocks = nn.ModuleList(attn_blocks)
+            
+        
+        ### stylegan g
+        
+        filters = [network_capacity * (2 ** (i)) for i in range(self.num_layers)][::-1]
+
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        init_channels = filters[0]
+        filters = [init_channels, *filters]
+        in_out_pairs = zip(filters[:-1], filters[1:])
+
+        self.g_blocks = nn.ModuleList([])
+        self.g_attns = nn.ModuleList([])
+        
+        for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
+            not_first = ind != 0
+            not_last = ind != (self.num_layers - 1)
+            num_layer = self.num_layers - ind
+
+            attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
+
+            self.g_attns.append(attn_fn)
+
+            block = GeneratorBlock(
+                latent_dim,
+                in_chan,
+                out_chan,
+                upsample = not_first,
+                upsample_rgb = not_last,
+                rgba = transparent
+            )
+            self.g_blocks.append(block)
+            
+        self.ref_encoder = MultiScaleResUNet(in_nc=4, out_nc=1)
+
+        # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+        
+    def get_zatt(self,Y,drive_landmark):
+        batch_size = Y.shape[0]
+        image_size = self.image_size
+        with torch.no_grad():
+            return self.ref_encoder(torch.cat((Y,drive_landmark), dim=1),None,None,None).view(batch_size,image_size,image_size,1)
+        
+    def get_style(self,Y):
+        batch_size = Y.shape[0]
+        with torch.no_grad():
+            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
+            zid, X_feats = self.arcface(resize_img)
+            styles = zid.view(batch_size, 1, self.latent_dim)
+        return styles
+    
+    def forward(self, landmarks,refimages,ref_landmarks):
+    
+        batch_size = refimages.shape[0]
+        image_size = self.image_size
+        
+        # style固定，noise不固定
+
+        input_noise = self.ref_encoder(torch.cat((refimages,ref_landmarks), dim=1),None,None,None).view(batch_size,image_size,image_size,1)
+        
+        with torch.no_grad():
+            resize_img = F.interpolate(refimages, [112, 112], mode='bilinear', align_corners=True)
+            self.arcface.eval()
+            zid, X_feats = self.arcface(resize_img)
+            styles = zid.view(batch_size, 1, self.latent_dim)
+        
+        output_styles =  styles
+        styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
+        
+        x = landmarks
+        
+        for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
+            x = block(x)
+            
+            if attn_block is not None:
+                x = attn_block(x)
+
+        styles = styles.transpose(0, 1)
+
+        rgb = None
+        for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
+            if attn is not None:
+                x = attn(x)
+            x, rgb = block(x, rgb, style, input_noise)
+        
+        return rgb,input_noise,output_styles
 
     
 ########################################################################################################################################################################################################################################################################################################################################
@@ -2411,3 +2547,7 @@ class Trainer():
             print(f'continuing from previous epoch - {name}')
         self.steps = name * self.save_every
         self.GAN.load_state_dict(torch.load(self.model_name(name)))
+
+# %%
+
+# %%

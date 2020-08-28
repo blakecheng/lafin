@@ -32,16 +32,14 @@ img_path = args.output
 mkdir(img_path)
 fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
 
-def get_landmark(img):
-    input_img = cv2.imread(os.path.join(path,img))
+def get_landmark(input_img):
     preds = fa.get_landmarks(input_img)
-    
     if len(preds[0])==68:
         ## mask
         x, y, w, h = cv2.boundingRect(np.array(preds[0]))
-        l = int(max(w,h)*2)
-        x = int(x-(l-w)/2)
-        y = int(y-(l-h)/2)
+        l = int(max(w,h)*1.7)
+        x = max(0,int(x-(l-w)/2))
+        y = max(0, int(y-(l-h)*1.5/2))
         face = input_img.copy()[y:y+l,x:x+l]
         filename = os.path.join(img_path,img)
         cv2.imwrite(filename,face)
@@ -54,19 +52,21 @@ def main():
         cap = cv2.VideoCapture(path)  
         fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
         idx = 0
-        
         while(cap.isOpened()):  
             ret, frame = cap.read()
             idx += 1
+            # if idx%15 is not 0:
+            #     continue
+            
             if ret == True:
                 input_img = frame
                 preds = fa.get_landmarks(input_img)  
                 if len(preds[0])==68:
                     ## mask
                     x, y, w, h = cv2.boundingRect(np.array(preds[0]))
-                    l = int(max(w,h)*2)
-                    x = int(x-(l-w)/2)
-                    y = int(y-(l-h)/2)
+                    l = int(max(w,h)*1.7)
+                    x = max(0,int(x-(l-w)/2))
+                    y = max(0, int(y-(l-h)*1.5/2))
                     face = input_img.copy()[y:y+l,x:x+l]
                     filename = os.path.join(img_path,"%d.jpg"% idx)
                     cv2.imwrite(filename,face)
@@ -78,17 +78,10 @@ def main():
         print("end")
     else:
         imgs = os.listdir(path)
-        print(imgs)
-
-        # pool=Pool(10)
-        # pool.map(get_landmark,imgs)
-        # pool.close()
-        # pool.join()
-    
-        
         for img in imgs:
             try:
-                get_landmark(img)
+                input_img = cv2.imread(os.path.join(path,img))
+                get_landmark(input_img)
             except:
                 print("Error when detecting %s"%img)
 

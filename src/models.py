@@ -5,14 +5,15 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from .networks import InpaintGenerator, Discriminator
-from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss
+from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
-from .stylegan2 import ref_guided_inpaintor
+from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
-from .faceshifter_generator import faceshifter_inpaintor
+from .faceshifter_generator import faceshifter_inpaintor,faceshifter_reenactment,faceshifter_reenactment2
 # from .faceshifter_generator import faceshifter_sin
+import numpy as np
 
 
 use_apex = False
@@ -162,6 +163,23 @@ class InpaintingModel(BaseModel):
             print("USE faceshifter inpaintor!")
             print("#####################\n")
             generator = faceshifter_inpaintor()
+        elif self.inpaint_type == "faceshifter_reenactment2":
+            print("#####################")
+            print("USE faceshifter inpaintor pairedref!")
+            print("#####################\n")
+            generator = faceshifter_reenactment2()
+        elif self.inpaint_type == "faceshifter_reenactment":
+            print("#####################")
+            print("USE faceshifter inpaintor!")
+            print("#####################\n")
+            generator = faceshifter_reenactment()
+        elif self.inpaint_type == "stylegan_ae_facereenactment":
+            print("#####################")
+            print("USE stylegan ae facereenactment !")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            generator = stylegan_ae_facereenactment(image_size=image_size,latent_dim=latent_dim)
         elif self.inpaint_type == "ref_guided":
             print("#####################")
             print("USE ref_guided generator!")
@@ -175,16 +193,13 @@ class InpaintingModel(BaseModel):
             generator = InpaintGenerator()
         
         discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
-        # if len(config.GPU) > 1:
-        #     generator = nn.DataParallel(generator)
-        #     discriminator = nn.DataParallel(discriminator)
-            # Apex
+        
+        
+
         if use_apex == True:
             generator = generator.cuda()
             discriminator = discriminator.cuda()
         else:
-            # generator = nn.DataParallel(generator, config.GPU)
-            # discriminator = nn.DataParallel(discriminator , config.GPU)
             if len(config.GPU) > 1:
                 generator = nn.DataParallel(generator)
                 discriminator = nn.DataParallel(discriminator)
@@ -202,6 +217,10 @@ class InpaintingModel(BaseModel):
         self.add_module('perceptual_loss', perceptual_loss)
         self.add_module('style_loss', style_loss)
         self.add_module('adversarial_loss', adversarial_loss)
+        
+        if self.inpaint_type == "faceshifter_reenactment2" or self.inpaint_type == "stylegan_ae_facereenactment":
+            landmark_loss = Landmark_loss()
+            self.add_module('landmark_loss',landmark_loss)
         # Apex
         
         self.gen_optimizer = optim.Adam(
@@ -220,20 +239,7 @@ class InpaintingModel(BaseModel):
         if use_apex == True:
             discriminator, dis_optimizer = amp.initialize(discriminator, self.dis_optimizer, opt_level="O1")
 
-
-
-    def process(self, images, landmarks, masks):
-        self.iteration += 1
-
-        # zero optimizers
-        self.gen_optimizer.zero_grad()
-        self.dis_optimizer.zero_grad()
-
-
-        # process outputs
-        outputs = self(images, landmarks, masks)
-    
-        
+    def get_loss1(self,images, landmarks, masks,outputs):
         gen_loss = 0
         dis_loss = 0
 
@@ -291,25 +297,317 @@ class InpaintingModel(BaseModel):
         ]
 
         return outputs, gen_loss, dis_loss, logs
+    
+    def get_loss_fr1(self,images, landmarks, masks,outputs):
+        gen_loss = 0
+        dis_loss = 0
+        ref_landmarks,ref_images,outputs,z_id,zatt,is_same = outputs
+        # discriminator loss
+        dis_input_real = images
+        dis_input_fake = outputs.detach()
+        
+        dis_real, _ = self.discriminator(torch.cat((dis_input_real , landmarks), dim=1))             
+        dis_fake, _ = self.discriminator(torch.cat((dis_input_fake , landmarks), dim=1))  
+
+        dis_real_loss = self.adversarial_loss(dis_real, True, True)
+        dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+        dis_loss += (dis_real_loss + dis_fake_loss) / 2
+      
+        # generator adversarial loss
+        
+        gen_input_fake = outputs
+        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
+
+        gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
+
+        gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
+        gen_loss += gen_l1_loss*is_same
+
+        #generator perceptual loss
+        gen_content_loss = self.perceptual_loss(outputs, images)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss*is_same
+
+        #generator style loss
+        gen_style_loss = self.style_loss(outputs, images)
+        gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+        gen_loss += gen_style_loss*is_same
+
+        #generator tv loss
+        
+        tv_loss = self.tv_loss(outputs)
+        gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
+        
+        # zid loss
+        with torch.no_grad():
+            Y_zatt = self.generator.module.get_zatt(outputs,landmarks)
+        
+        batch_size = images.shape[0]
+        L_attr = 0
+        for i in range(len(Y_zatt)):
+            L_attr += torch.mean(torch.pow(Y_zatt[i] - zatt[i], 2).reshape(batch_size, -1), dim=1).mean()
+        
+        gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
+        gen_loss += gen_att_loss
+        
+        # landmark_loss
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(images,outputs) 
+        gen_loss += gen_landmark_loss
+        
+        
+        # create logs
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gl1_l",gen_l1_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gstyle_l",gen_style_loss.item()),
+            ("gtv_l",tv_loss.item()),
+            ("gatt_l",gen_att_loss.item()),
+            ("glandmark_l",gen_landmark_loss.item()),
+            ("dLoss",dis_loss.item())
+        ]
+
+        return outputs, gen_loss, dis_loss, logs
+    
+    
+    
+    def get_loss_fr2(self,images, landmarks, masks,outputs):
+        gen_loss = 0
+        dis_loss = 0
+        ref_landmarks,ref_images,outputs,z_id,zatt,is_same = outputs
+        # discriminator loss
+        dis_input_real = images
+        dis_input_fake = outputs.detach()
+        
+        dis_real, _ = self.discriminator(torch.cat((dis_input_real , landmarks), dim=1))             
+        dis_fake, _ = self.discriminator(torch.cat((dis_input_fake , landmarks), dim=1))  
+
+        dis_real_loss = self.adversarial_loss(dis_real, True, True)
+        dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+        dis_loss += (dis_real_loss + dis_fake_loss) / 2
+      
+        # generator adversarial loss
+        
+        
+        gen_input_fake = outputs
+        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
+
+        gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
+
+        gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
+        gen_loss += gen_l1_loss
+
+        #generator perceptual loss
+        gen_content_loss = self.perceptual_loss(outputs, images)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss
+
+        #generator style loss
+        gen_style_loss = self.style_loss(outputs, images)
+        gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+        gen_loss += gen_style_loss
+
+        #generator tv loss
+        
+        tv_loss = self.tv_loss(outputs)
+        gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
+        
+        # zid loss
+        with torch.no_grad():
+            Y_zatt = self.generator.module.get_zatt(images,landmarks)
+        
+        batch_size = images.shape[0]
+        L_attr = 0
+        for i in range(len(Y_zatt)):
+            L_attr += torch.mean(torch.pow(Y_zatt[i] - zatt[i], 2).reshape(batch_size, -1), dim=1).mean()
+        
+        gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
+        gen_loss += gen_att_loss
+        
+        # landmark_loss
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(images,outputs) 
+        gen_loss += gen_landmark_loss
+        
+        
+        # create logs
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gl1_l",gen_l1_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gstyle_l",gen_style_loss.item()),
+            ("gtv_l",tv_loss.item()),
+            ("gatt_l",gen_att_loss.item()),
+            ("glandmark_l",gen_landmark_loss.item()),
+            ("dLoss",dis_loss.item())
+        ]
+
+        return outputs, gen_loss, dis_loss, logs
+    
+    def get_loss_stylegan1(self,images, landmarks, masks,outputs):
+        gen_loss = 0
+        dis_loss = 0
+        ref_landmarks,ref_images,outputs,input_noise,styles,is_same = outputs
+        # discriminator loss
+        dis_input_real = images
+        dis_input_fake = outputs.detach()
+        
+        dis_real, _ = self.discriminator(torch.cat((dis_input_real , landmarks), dim=1))             
+        dis_fake, _ = self.discriminator(torch.cat((dis_input_fake , landmarks), dim=1))  
+
+        dis_real_loss = self.adversarial_loss(dis_real, True, True)
+        dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+        dis_loss += (dis_real_loss + dis_fake_loss) / 2
+      
+        # generator adversarial loss
+        
+        
+        gen_input_fake = outputs
+        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
+
+        gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
+
+        gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
+        gen_loss += gen_l1_loss
+
+        #generator perceptual loss
+        gen_content_loss = self.perceptual_loss(outputs, images)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss*is_same
+
+        #generator style loss
+        gen_style_loss = self.style_loss(outputs, images)
+        gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+        gen_loss += gen_style_loss*is_same
+
+        #generator tv loss
+        
+        tv_loss = self.tv_loss(outputs)
+        gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
+        
+        # zatt loss
+        with torch.no_grad():
+            Y_zatt = self.generator.module.get_zatt(images,landmarks)
+        
+        batch_size = images.shape[0]
+        L_attr = 0
+        
+        L_attr += torch.mean(torch.pow(Y_zatt - input_noise, 2).reshape(batch_size, -1), dim=1).mean()
+        
+        gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
+        gen_loss += gen_att_loss
+        
+        # zid loss
+        with torch.no_grad():
+            Y_id = self.generator.module.get_style(images)
+            L_id = self.config.ID_LOSS_WEIGHT* (1 - torch.cosine_similarity(styles, Y_id, dim=1)).mean() 
+        gen_loss += L_id
+        
+        
+        # landmark_loss
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(images,outputs) 
+        gen_loss += gen_landmark_loss
+        
+        
+        # create logs
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gl1_l",gen_l1_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gstyle_l",gen_style_loss.item()),
+            ("gtv_l",tv_loss.item()),
+            ("gatt_l",gen_att_loss.item()),
+            ("glandmark_l",gen_landmark_loss.item()),
+            ("gid_l",L_id.item()),
+            ("dLoss",dis_loss.item())
+        ]
+
+        return outputs, gen_loss, dis_loss, logs
+    
+##################################################################################
+    def process(self, images, landmarks, masks):
+        self.iteration += 1
+
+        # zero optimizers
+        self.gen_optimizer.zero_grad()
+        self.dis_optimizer.zero_grad()
+
+
+        # process outputs
+        outputs = self(images, landmarks, masks)
+        
+        if self.inpaint_type == "faceshifter_reenactment":
+            outputs, gen_loss, dis_loss, logs = self.get_loss_fr1(images, landmarks, masks,outputs)
+        elif self.inpaint_type == "faceshifter_reenactment2":
+            outputs, gen_loss, dis_loss, logs = self.get_loss_fr2(images, landmarks, masks,outputs)
+        elif self.inpaint_type == "stylegan_ae_facereenactment":
+            outputs, gen_loss, dis_loss, logs = self.get_loss_stylegan1(images, landmarks, masks,outputs)
+        else:
+            outputs, gen_loss, dis_loss, logs = self.get_loss1(images, landmarks, masks,outputs)
+    
+        return outputs, gen_loss, dis_loss, logs
+        
 
     def forward(self, images, landmarks, masks):
-        if "stylegan2" in self.inpaint_type:
-            images_masked = (images * (1 - masks).float()) + masks
-            inputs = torch.cat((images_masked, landmarks), dim=1)
-            outputs = self.generator(inputs)
+        if self.inpaint_type == "stylegan_ae_facereenactment":
+            batch_size = images.shape[0]
+            # ref_index = torch.randperm(batch_size).cuda()
+            if np.random.rand()> 0.8:
+                is_same = 1
+                ref_landmarks = landmarks
+                ref_images = images
+            else:
+                is_same = 0
+                ref_index = (torch.arange(batch_size)+1)%batch_size
+                ref_landmarks = landmarks[ref_index]
+                ref_images = images[ref_index] 
+            rgb,input_noise,style = self.generator(landmarks,ref_images,ref_landmarks)
+            return ref_landmarks,ref_images,rgb,input_noise,style,is_same
         elif self.inpaint_type == "s2_ae_landmark_in" :
             outputs = self.generator(landmarks)
         elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
             outputs = self.generator(landmarks,images)
         elif self.inpaint_type == "faceshifter" :
             outputs = self.generator(images,landmarks,masks)
-        elif  self.inpaint_type == "faceshifter_inpaintor_selfref":
+        elif self.inpaint_type == "faceshifter_inpaintor_selfref":
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks,masks), dim=1)
             ref_images = flip(images,dim=1)
             outputs,z_id,out_id = self.generator(inputs,ref_images)
+        elif self.inpaint_type == "faceshifter_reenactment2":
+            batch_size = images.shape[0]
+            # ref_index = torch.randperm(batch_size).cuda()
+            if np.random.rand()> 0.8:
+                is_same = 1
+                ref_landmarks = landmarks
+                ref_images = images
+            else:
+                is_same = 0
+                ref_index = (torch.arange(batch_size)+1)%batch_size
+                ref_landmarks = landmarks[ref_index]
+                ref_images = images[ref_index] 
+            outputs,z_id,out_id = self.generator(landmarks,ref_images,ref_landmarks)
+            return ref_landmarks,ref_images,outputs,z_id,out_id,is_same
+        elif self.inpaint_type == "faceshifter_reenactment":
+            batch_size = images.shape[0]
+            is_the_same = (torch.rand(batch_size)< 0.2).long().cuda()
+            img_index = torch.arange(batch_size).cuda()
+            ref_index = img_index*is_the_same.long() + ((img_index+1)%batch_size)*(1-is_the_same).long()
+            ref_landmarks = landmarks[ref_index]
+            ref_images = images[ref_index]
+            outputs,z_id,zatt = self.generator(landmarks,ref_images,ref_landmarks)
+            return ref_images,ref_landmarks,outputs,z_id,zatt,is_the_same
         elif "ref_guided" in self.inpaint_type:
             outputs = self.generator(images,landmarks,masks)
+        elif "stylegan2" in self.inpaint_type:
+            images_masked = (images * (1 - masks).float()) + masks
+            inputs = torch.cat((images_masked, landmarks), dim=1)
+            outputs = self.generator(inputs)
         else:
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks), dim=1)
@@ -318,6 +616,7 @@ class InpaintingModel(BaseModel):
             scaled_masks_half = F.interpolate(masks, size=[int(masks.shape[2] / 2), int(masks.shape[3] / 2)],
                                         mode='bilinear', align_corners=True)
             outputs = self.generator(inputs,masks,scaled_masks_half,scaled_masks_quarter)                                    # in: [rgb(3) + landmark(1)]
+            
         return outputs
 
     def backward(self, gen_loss = None, dis_loss = None):
@@ -396,6 +695,18 @@ def loss_landmark(landmark_true, landmark_pred, points_num=68):
     landmark_loss = torch.norm((landmark_true-landmark_pred).reshape(-1,points_num*2),2,dim=1,keepdim=True)
 
     return torch.mean(landmark_loss)
+
+class landmark_loss(nn.Module):
+    def __init__(self,points_num):
+        super(landmark_loss,self).__init__()
+        self.points_num = points_num
+        lm_detector = MobileNetV2(points_num=points_num)
+        lm_weight = torch.load("saved_models/landmark_detector.pth")
+        lm_detector.load_state_dict(lm_weight['detector'])
+        
+    def forward(self,landmark_true, landmark_pred):
+        landmark_loss = torch.norm((landmark_true-landmark_pred).reshape(-1,self.points_num*2),2,dim=1,keepdim=True)
+        return torch.mean(landmark_loss)
 
 class LandmarkDetectorModel(nn.Module):
     def __init__(self, config):

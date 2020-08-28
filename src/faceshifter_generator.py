@@ -239,6 +239,8 @@ class faceshifter_inpaintor(BaseNetwork):
             arcface.eval()
             arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
             self.Idencoder = arcface
+        else:
+            self.Idencoder = Normal_Encoder
         
         self.lm_autoencoder = MAE(c_in=5)
         self.generator = ADDGenerator(c_id=512)
@@ -270,6 +272,44 @@ class faceshifter_inpaintor(BaseNetwork):
         return outputs,z_id,out_id
     
 
+class faceshifter_reenactment2(BaseNetwork):
+    def __init__(self, image_size=256,init_weights=True):
+        super(faceshifter_reenactment2, self).__init__()
+
+        self.ref_autoencoder = MAE(c_in=4)
+        self.lm_encoder = Normal_Encoder(1,3).cuda()
+        self.Fm_encoder = Normal_Encoder(4,5).cuda()
+        self.generator = ADDGenerator(c_id=512)
+        self.image_size = image_size
+        if init_weights:
+            self.init_weights()
+   
+    def Id_forward(self,refimages):
+        if self.IE_pretrained == True:
+            with torch.no_grad():
+                resize_img = F.interpolate(refimages, [112, 112], mode='bilinear', align_corners=True)
+                zid, X_feats = self.Idencoder(resize_img)
+            return zid, X_feats
+        
+    def get_zatt(self,Y,drive_landmark):
+        with torch.no_grad():
+            return self.ref_autoencoder(torch.cat((Y,drive_landmark), dim=1))
+        
+
+    def forward(self,landmarks,refimages,ref_landmarks):
+        batch_size = refimages.shape[0]
+        image_size = self.image_size
+        # if batch_size<=1:
+        #     print("batch size should be larger than 1")
+        #     exit
+        
+        zatt= self.ref_autoencoder(torch.cat((refimages,ref_landmarks), dim=1))
+        z_id = self.lm_encoder(landmarks)
+        outputs = self.generator(zatt,z_id)
+            
+        return outputs,z_id,zatt
+    
+
 class faceshifter_reenactment(BaseNetwork):
     def __init__(self, image_size=256,init_weights=True):
         super(faceshifter_reenactment, self).__init__()
@@ -293,6 +333,11 @@ class faceshifter_reenactment(BaseNetwork):
                 resize_img = F.interpolate(refimages, [112, 112], mode='bilinear', align_corners=True)
                 zid, X_feats = self.Idencoder(resize_img)
             return zid, X_feats
+        
+    def get_zatt(self,Y,drive_landmark):
+        with torch.no_grad():
+            return self.ref_autoencoder(torch.cat((Y,drive_landmark), dim=1))
+        
 
     def forward(self,landmarks,refimages,ref_landmarks):
         batch_size = refimages.shape[0]
@@ -301,11 +346,14 @@ class faceshifter_reenactment(BaseNetwork):
             print("batch size should be larger than 1")
             exit
         
-        zatt= self.ref_autoencoder(refimages,ref_landmarks)
+        zatt= self.ref_autoencoder(torch.cat((refimages,ref_landmarks), dim=1))
         z_id = self.lm_encoder(landmarks)
         outputs = self.generator(zatt,z_id)
             
         return outputs,z_id,zatt
+    
+
+
 
 
 class faceshifter_fe(BaseNetwork):

@@ -38,9 +38,10 @@ def main():
     
     num = 200
     # root_path = "/data/chengbin/code/lafin/checkpoints/Obama_face_10_train/Obama_face/results/inpaint"
-    root_path = "/home/public/cb/code/lafin_bak/checkpoints/celebahq-stylegan-256-ae-4layers/results/inpaint"
-    output_path = 'Obama_inpainting.avi'
-    fps = 1 
+    # root_path = "/home/public/cb/code/lafin_bak/checkpoints/celebahq-stylegan-256-ae-4layers/results/inpaint"
+    root_path = "checkpoints/celebahq-stylegan-256-ae-4layers-finetune_freezeD/results/inpaint"
+    output_path = 'Obama_inpainting_fintune.avi'
+    fps = 2
     
     import os
    
@@ -51,7 +52,7 @@ def main():
     names.sort()
     files = ["%s%s"%(str(name),ext) for name in names]
 
-    vw = VideoWriter(os.path.join(root_path,output_path), width, height,fps)
+    vw = VideoWriter(output_path, width, height,fps)
 
     count = 0
     for file in files:

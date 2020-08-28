@@ -206,6 +206,11 @@ class Lafin():
                 if iteration >= max_iteration:
                     keep_training = False
                     break
+                
+                self.writer.add_scalar("train/gloss",gen_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train/dloss",dis_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train/psnr",psnr.item(),iteration)
+                self.writer.add_scalar("train/mae",mae.item(),iteration)
 
                 logs = [
                     ("epoch", epoch),
@@ -321,7 +326,7 @@ class Lafin():
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
                     
-                if epoch<10:
+                if epoch<10 or iteration % 10*self.config.SAVE_INTERVAL == 0:
                     torch.save({
                         'iteration': self.inpaint_model.iteration,
                         'generator': self.inpaint_model.generator.state_dict()
@@ -589,6 +594,10 @@ class Lafin():
                 inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1-masks[i,0,landmarks[i, :, 1], landmarks[i,:,0]]
 
             outputs = self.inpaint_model(images, landmark_map, masks)
+            if self.config.INPAINTOR == "faceshifter_reenactment2":
+                ref_landmarks,ref_images,outputs,z_id,out_id,is_the_same = outputs
+            elif self.config.INPAINTOR == "stylegan_ae_facereenactment":
+                ref_images,ref_landmarks,outputs,z_id,zatt,is_the_same = outputs
             outputs_merged = (outputs * masks) + (images * (1 - masks))
 
             

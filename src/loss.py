@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from .networks import MobileNetV2
 #from torch.utils.data.dataloader import pin_memory_batch
 
 class AdversarialLoss(nn.Module):
@@ -27,6 +28,8 @@ class AdversarialLoss(nn.Module):
 
         elif type == 'hinge':
             self.criterion = nn.ReLU()
+            
+        print("loss type: %s"% type)
 
     def __call__(self, outputs, is_real, is_disc=None):
         if self.type == 'hinge':
@@ -240,3 +243,18 @@ class TVLoss(nn.Module):
         tv_h = torch.div(torch.sum(torch.abs(x[:,:,1:,:] - x[:,:,:-1,:])),(x.size()[0]*x.size()[1]*(height-1)*width))
         tv_w = torch.div(torch.sum(torch.abs(x[:,:,:,1:] - x[:,:,:,:-1])),(x.size()[0]*x.size()[1]*(height)*(width-1)))
         return tv_w+tv_h
+
+
+class Landmark_loss(nn.Module):
+    def __init__(self,points_num=68):
+        super(Landmark_loss,self).__init__()
+        self.points_num = points_num
+        self.lm_detector = MobileNetV2(points_num=points_num).cuda()
+        lm_weight = torch.load("saved_models/landmark_detector.pth")
+        self.lm_detector.load_state_dict(lm_weight['detector'])
+        self.lm_detector.eval()
+        
+    def forward(self,img_true,img_pred):
+        landmark_true, landmark_pred = self.lm_detector(img_true),self.lm_detector(img_pred)
+        landmark_loss = torch.norm((landmark_true-landmark_pred).reshape(-1,self.points_num*2),2,dim=1,keepdim=True)
+        return torch.mean(landmark_loss)
