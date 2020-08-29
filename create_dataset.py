@@ -82,7 +82,7 @@ def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
            
         
         
-        x, y, w, h = cv2.boundingRect(np.array(preds[0]))
+        x, y, w, h = cv2.boundingRect(np.concatenate((np.array(preds[0][3:14,:]),np.array(preds[0][48:67,:])),axis=0))
         mask_img = cv2.rectangle(input_img.copy(), (x, y), (x + w, y + h), (255, 255, 255), -1)
         mask = cv2.rectangle(np.zeros(input_img.shape,input_img.dtype), (x, y), (x + w, y + h), (255, 255, 255), -1)
        

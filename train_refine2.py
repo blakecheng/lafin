@@ -47,17 +47,12 @@ def postprocess(img):
 
 
 
-path = "/home/public/cb/code/lafin/checkpoints/obama-ae-lmin-256-512-latent-refine"
+path = "/home/public/cb/code/lafin/checkpoints/obama-ae-lmin-256-512-latent-refine2"
 # path = "/home/public/cb/code/lafin/remote_checkpoint/celeba1024-all-Jul201101"
 gen_weights_path = os.path.join(path,'InpaintingModel_gen.pth')
 data = torch.load(gen_weights_path)
 
-coarse_cfg = os.path.join(path,"config.yml")
-Inpaintor = InpaintingModel(coarse_cfg).cuda()
-generator = Inpaintor.generator
-# generator = nn.DataParallel(generator)
-generator.load_state_dict(data['generator'])
-generator.eval()
+
 
 refine_path = os.path.join(path,"refine_Obama")
 create_dir(os.path.join(refine_path,"checkpoint"))
@@ -70,14 +65,23 @@ config.MODEL = 2
 config.MODE = 2 
 
 
-
+# coarse_cfg = Config(os.path.join(refine_path,"refine_config.yml"))
+Inpaintor = InpaintingModel(config).cuda()
+generator = Inpaintor.generator
+# generator = nn.DataParallel(generator)
+generator.load_state_dict(data['generator'])
+generator.eval()
 
 
 # generator = generator.cuda()
 
 iteration = data['iteration']
 
-refinetor = RefineModel()
+image_size = config.INPUT_SIZE
+latent_dim = 512
+num_layers = 4
+network_capacity = 64
+refinetor = stylegan_L2I_Generator_AE(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers,in_c = 6)
 refinetor = refinetor.cuda()
 
 # re_data = torch.load(os.path.join(refine_path,'checkpoint/refine.pth'))
@@ -162,6 +166,7 @@ for epoch in range(10000):
         ref_outputs = Inpaintor(ref_images, ref_landmark_map, ref_masks)
         
         coarse = torch.cat((ref_outputs-ref_images,outputs),dim=1) 
+        
         refine_result = refinetor(coarse)
         
         ref_l1_loss = refinetor.l1_loss(refine_result, images) * config.L1_LOSS_WEIGHT / torch.mean(masks)
@@ -204,8 +209,9 @@ for epoch in range(10000):
             postprocess(outputs),
             postprocess(ref_images),
             postprocess(refine_result),
-            img_per_row = 2
+            img_per_row = 1
         )
+        #print(images.shape,landmark_map.shape,outputs.shape,ref_images.shape,ref_images.shape,refine_result.shape)
         sample_image.save(os.path.join(refine_path,"sample",str(epoch).zfill(5)+".png"))
     
     torch.save({

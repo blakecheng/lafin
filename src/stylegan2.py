@@ -811,7 +811,7 @@ class ref_guided_inpaintor(BaseNetwork):
 ##################################################################################
 ## AE correct
 class stylegan_L2I_Generator_AE(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512 , in_c = 4):
         super().__init__()
         
         self.image_size = image_size
@@ -823,7 +823,7 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 4
+        num_init_filters = in_c
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         

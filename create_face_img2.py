@@ -55,8 +55,8 @@ def main():
         while(cap.isOpened()):  
             ret, frame = cap.read()
             idx += 1
-            # if idx%15 is not 0:
-            #     continue
+            if idx>500:
+                break
             
             if ret == True:
                 input_img = frame
@@ -65,9 +65,9 @@ def main():
                     if len(preds[0])==68:
                         ## mask
                         x, y, w, h = cv2.boundingRect(np.array(preds[0]))
-                        l = int(max(w,h)*1.7)
+                        l = int(max(w,h)*2)
                         x = max(0,int(x-(l-w)/2))
-                        y = max(0, int(y-(l-h)*1.5/2))
+                        y = max(0, int(y-(l-h)/2))
                         face = input_img.copy()[y:y+l,x:x+l]
                         filename = os.path.join(img_path,"%d.jpg"% idx)
                         cv2.imwrite(filename,face)
