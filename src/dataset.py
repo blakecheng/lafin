@@ -55,7 +55,7 @@ class Dataset(torch.utils.data.Dataset):
                     item = self.load_item(index)
                     break
                 except:
-                    print("loading the %d th data error"%index)
+                    print("loading the %d th data error，path: %s"%index,self.data[index])
         return item
 
     def load_name(self, index):

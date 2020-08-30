@@ -1225,11 +1225,13 @@ class stylegan_ae_facereenactment(BaseNetwork):
             self.g_blocks.append(block)
             
         self.ref_encoder = MultiScaleResUNet(in_nc=4, out_nc=1)
-
+        self.init_weights(init_type='xavier')
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+        
         
     def get_zatt(self,Y,drive_landmark):
         batch_size = Y.shape[0]
+        
         image_size = self.image_size
         with torch.no_grad():
             return self.ref_encoder(torch.cat((Y,drive_landmark), dim=1),None,None,None).view(batch_size,image_size,image_size,1)

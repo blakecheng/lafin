@@ -386,7 +386,7 @@ class InpaintingModel(BaseModel):
 
         dis_real_loss = self.adversarial_loss(dis_real, True, True)
         dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
-        dis_loss += (dis_real_loss + dis_fake_loss) / 2
+        dis_loss += (dis_real_loss + dis_fake_loss) / 2 *is_same
       
         # generator adversarial loss
         
@@ -395,20 +395,20 @@ class InpaintingModel(BaseModel):
         gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
 
         gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
-        gen_loss += gen_gan_loss
+        gen_loss += gen_gan_loss*is_same
 
         gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
-        gen_loss += gen_l1_loss
+        gen_loss += gen_l1_loss*is_same
 
         #generator perceptual loss
         gen_content_loss = self.perceptual_loss(outputs, images)
         gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
-        gen_loss += gen_content_loss
+        gen_loss += gen_content_loss*is_same
 
         #generator style loss
         gen_style_loss = self.style_loss(outputs, images)
         gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
-        gen_loss += gen_style_loss
+        gen_loss += gen_style_loss*is_same
 
         #generator tv loss
         
@@ -433,17 +433,29 @@ class InpaintingModel(BaseModel):
         
         
         # create logs
-        logs = [
-            ("gLoss",gen_loss.item()),
-            ("ggan_l",gen_gan_loss.item()),
-            ("gl1_l",gen_l1_loss.item()),
-            ("gcontent_l",gen_content_loss.item()),
-            ("gstyle_l",gen_style_loss.item()),
-            ("gtv_l",tv_loss.item()),
-            ("gatt_l",gen_att_loss.item()),
-            ("glandmark_l",gen_landmark_loss.item()),
-            ("dLoss",dis_loss.item())
-        ]
+        if is_same==1:
+            logs = [
+                ("is_same",1),
+                ("gLoss",gen_loss.item()),
+                ("ggan_l",gen_gan_loss.item()),
+                ("gl1_l",gen_l1_loss.item()),
+                ("gcontent_l",gen_content_loss.item()),
+                ("gstyle_l",gen_style_loss.item()),
+                ("gtv_l",tv_loss.item()),
+                ("gatt_l",gen_att_loss.item()),
+                ("glandmark_l",gen_landmark_loss.item()),
+                ("dLoss",dis_loss.item())
+            ]
+        else:
+            logs = [
+                ("is_same",0),
+                ("gLoss",gen_loss.item()),
+                ("ggan_l",gen_gan_loss.item()),
+                ("gtv_l",tv_loss.item()),
+                ("gatt_l",gen_att_loss.item()),
+                ("glandmark_l",gen_landmark_loss.item()),
+                ("dLoss",dis_loss.item())
+            ]
 
         return outputs, gen_loss, dis_loss, logs
     
@@ -460,7 +472,7 @@ class InpaintingModel(BaseModel):
 
         dis_real_loss = self.adversarial_loss(dis_real, True, True)
         dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
-        dis_loss += (dis_real_loss + dis_fake_loss) / 2
+        dis_loss += (dis_real_loss + dis_fake_loss) *is_same / 2 
       
         # generator adversarial loss
         
@@ -469,10 +481,10 @@ class InpaintingModel(BaseModel):
         gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
 
         gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
-        gen_loss += gen_gan_loss
+        gen_loss += gen_gan_loss*is_same
 
         gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
-        gen_loss += gen_l1_loss
+        gen_loss += gen_l1_loss*is_same
 
         #generator perceptual loss
         gen_content_loss = self.perceptual_loss(outputs, images)
@@ -495,9 +507,9 @@ class InpaintingModel(BaseModel):
         
         batch_size = images.shape[0]
         L_attr = 0
-        
+ 
         L_attr += torch.mean(torch.pow(Y_zatt - input_noise, 2).reshape(batch_size, -1), dim=1).mean()
-        
+
         gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
         gen_loss += gen_att_loss
         
@@ -557,15 +569,15 @@ class InpaintingModel(BaseModel):
         if self.inpaint_type == "stylegan_ae_facereenactment":
             batch_size = images.shape[0]
             # ref_index = torch.randperm(batch_size).cuda()
-            if np.random.rand()> 0.8:
+            if np.random.rand()> 0.2:
                 is_same = 1
                 ref_landmarks = landmarks
                 ref_images = images
             else:
                 is_same = 0
                 ref_index = (torch.arange(batch_size)+1)%batch_size
-                ref_landmarks = landmarks[ref_index]
-                ref_images = images[ref_index] 
+                ref_landmarks = torch.clone(landmarks[ref_index])
+                ref_images = torch.clone(images[ref_index])
             rgb,input_noise,style = self.generator(landmarks,ref_images,ref_landmarks)
             return ref_landmarks,ref_images,rgb,input_noise,style,is_same
         elif self.inpaint_type == "s2_ae_landmark_in" :
@@ -582,15 +594,15 @@ class InpaintingModel(BaseModel):
         elif self.inpaint_type == "faceshifter_reenactment2":
             batch_size = images.shape[0]
             # ref_index = torch.randperm(batch_size).cuda()
-            if np.random.rand()> 0.8:
+            if np.random.rand()> 0.7:
                 is_same = 1
                 ref_landmarks = landmarks
                 ref_images = images
             else:
                 is_same = 0
                 ref_index = (torch.arange(batch_size)+1)%batch_size
-                ref_landmarks = landmarks[ref_index]
-                ref_images = images[ref_index] 
+                ref_landmarks = torch.clone(landmarks[ref_index])
+                ref_images = torch.clone(images[ref_index])
             outputs,z_id,out_id = self.generator(landmarks,ref_images,ref_landmarks)
             return ref_landmarks,ref_images,outputs,z_id,out_id,is_same
         elif self.inpaint_type == "faceshifter_reenactment":
