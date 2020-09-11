@@ -251,18 +251,18 @@ if __name__ == "__main__":
         create_mask(args.raw,img_dir,mask_dir,landmark_dir,img_flist,mask_flist,landmark_flist)
     
     
-    # nums=args.rate
-    # pic_path = args.pic
-    # dataset_path = args.dataset
-    # checkpoint_path = args.checkpoint
+    nums=args.rate
+    pic_path = args.pic
+    dataset_path = args.dataset
+    checkpoint_path = args.checkpoint
 
-    # img_dir= os.path.join(pic_path,"images")
-    # mask_dir= os.path.join(pic_path,"masks")
-    # landmark_dir = os.path.join(pic_path,"landmarks")
+    img_dir= os.path.join(pic_path,"images")
+    mask_dir= os.path.join(pic_path,"masks")
+    landmark_dir = os.path.join(pic_path,"landmarks")
 
-    # create_dataset(nums,img_dir,mask_dir,landmark_dir,dataset_path)
-    # create_config(dataset_path,checkpoint_path,example_path=args.config)
-    # print("dataset locate：%s ,checkpoint locate : %s "%(dataset_path,checkpoint_path))
+    create_dataset(nums,img_dir,mask_dir,landmark_dir,dataset_path)
+    create_config(dataset_path,checkpoint_path,example_path=args.config)
+    print("dataset locate：%s ,checkpoint locate : %s "%(dataset_path,checkpoint_path))
     
     
 

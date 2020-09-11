@@ -15,6 +15,16 @@ import sys
 print(sys.path)
 from .utils import create_mask
 
+# class newDataset(torch.utils.data.Dataset):
+#     def __init__(self, num= 3):
+#         super(newDataset, self).__init__()
+#         self.data_list = os.listdir("ffhq-lafin")
+        
+#     def __len__(self): 
+#         return len(data_list)
+        
+#     def __getitem__(self, index):
+
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True):
@@ -54,8 +64,10 @@ class Dataset(torch.utils.data.Dataset):
                 try:
                     item = self.load_item(index)
                     break
+                except Exception as ex:
+                    print("Error: %s"%ex)
                 except:
-                    print("loading the %d th data error，path: %s"%index,self.data[index])
+                    print("loading the %d th data error，path: %s"%(index,self.data[index]))
         return item
 
     def load_name(self, index):

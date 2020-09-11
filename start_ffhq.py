@@ -91,7 +91,10 @@ if __name__ == "__main__":
 
         suffix = time.strftime("%b%d%H%M")
         dataset_path = "datasets/ffhq-all-%s"%(suffix)
-        checkpoint_path = "remote_checkpoints/ffhq-all-face-ae-lm-in-%s"%(suffix)
+
+        #######################################################
+        checkpoint_path = "remote_checkpoints/ffhq-all-face-reenactment-%s"%(suffix)
+        #######################################################
         mkdir(checkpoint_path)
 
         copy_dataset(s3code_path, code_path)
@@ -102,7 +105,7 @@ if __name__ == "__main__":
         os.system("pwd")
 
         ######################################################################
-        create_config("datasets/FFHQr", checkpoint_path, "celeba_hq_ae_lm_in_config.yml")
+        create_config("datasets/FFHQr", checkpoint_path, "config.yml")
 
         t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,s3code_path+"/" + checkpoint_path,))
         t.start()
@@ -111,21 +114,23 @@ if __name__ == "__main__":
         t.start()
 
 
-        os.system("pwd ; ls")
+        os.system("pwd")
         os.system("df -h")
         # /cache/user-job-dir/code/ffhq-lafin:
         os.system("pip install -r requirements.txt")
+        os.system("pip install stylegan2_pytorch")
 
         ## 某些情况
         #os.system("mkdir -p /home/work/.torch/models/")
         #os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.torch/models/")
         ## 另一些情况
+
         os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
 
-        os.system("python create_dataset.py --pic %s --dataset %s --checkpoint %s"%(
-            data_path,dataset_path,checkpoint_path
-        ))
+        # os.system("python create_dataset.py --pic %s --dataset %s --checkpoint %s"%(
+        #     data_path,dataset_path,checkpoint_path
+        # ))
         os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,data_path))
         copy_dataset(checkpoint_path, s3code_path+"/" + checkpoint_path)
 

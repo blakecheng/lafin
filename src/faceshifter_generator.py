@@ -276,10 +276,10 @@ class faceshifter_reenactment2(BaseNetwork):
     def __init__(self, image_size=256,init_weights=True):
         super(faceshifter_reenactment2, self).__init__()
 
-        self.ref_autoencoder = MAE(c_in=4)
+        self.ref_autoencoder = MAE(c_in=4).cuda()
         self.lm_encoder = Normal_Encoder(1,3).cuda()
         self.Fm_encoder = Normal_Encoder(4,5).cuda()
-        self.generator = ADDGenerator(c_id=512)
+        self.generator = ADDGenerator(c_id=512).cuda()
         self.image_size = image_size
         if init_weights:
             self.init_weights()

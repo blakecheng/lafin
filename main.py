@@ -81,6 +81,7 @@ def load_config(mode=None):
     parser.add_argument('--path', '--checkpoints', type=str, default='./checkpoints', help='model checkpoints path (default: ./checkpoints)')
     parser.add_argument('--model', type=int, choices=[1, 2, 3], help='1: landmark prediction model, 2: inpaint model, 3: joint model')
     parser.add_argument('--data_path', type=str, help='path to data')
+    parser.add_argument("--local_rank", type=int, default=0) 
     # test mode
     if mode == 2:
         parser.add_argument('--input', type=str, help='path to the input images directory or an input image')
@@ -107,6 +108,7 @@ def load_config(mode=None):
     if args.data_path is not None:
         config.DATA_ROOT = args.data_path
 
+    config.LocalRank = args.local_rank
         
     # train mode
     if mode == 1:

@@ -52,7 +52,7 @@ path = "/home/public/cb/code/lafin/checkpoints/obama-ae-lmin-256-512-latent-refi
 gen_weights_path = os.path.join(path,'InpaintingModel_gen.pth')
 data = torch.load(gen_weights_path)
 
-coarse_cfg = os.path.join(path,"config.yml")
+coarse_cfg = Config(os.path.join(path,"config.yml"))
 Inpaintor = InpaintingModel(coarse_cfg).cuda()
 generator = Inpaintor.generator
 # generator = nn.DataParallel(generator)

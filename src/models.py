@@ -79,6 +79,9 @@ class BaseModel(nn.Module):
 class InpaintingModel(BaseModel):
     def __init__(self, config):
         super(InpaintingModel, self).__init__('InpaintingModel', config)
+        if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
+            self.local_rank = config.LocalRank
+            torch.cuda.set_device(self.local_rank)
         
         self.is_local = False
         if hasattr(config, 'LOCAL'):
@@ -201,17 +204,27 @@ class InpaintingModel(BaseModel):
             discriminator = discriminator.cuda()
         else:
             if len(config.GPU) > 1:
-                generator = nn.DataParallel(generator)
-                discriminator = nn.DataParallel(discriminator)
+                if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
+                    generator = torch.nn.parallel.DistributedDataParallel(generator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+                    discriminator = torch.nn.parallel.DistributedDataParallel(discriminator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+                else:
+                    generator = nn.DataParallel(generator)
+                    discriminator = nn.DataParallel(discriminator)
+            else:
+                generator = generator.cuda()
+                discriminator = discriminator.cuda()
 
-        l1_loss = nn.L1Loss()
-        perceptual_loss = PerceptualLoss()
-        style_loss = StyleLoss()
-        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS)
-        self.tv_loss = TVLoss()
 
-        self.add_module('generator', generator)
-        self.add_module('discriminator', discriminator)
+        l1_loss = nn.L1Loss().cuda()
+        perceptual_loss = PerceptualLoss().cuda()
+        style_loss = StyleLoss().cuda()
+        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).cuda()
+        self.tv_loss = TVLoss().cuda()
+        
+        
+
+        self.add_module('generator', generator.cuda())
+        self.add_module('discriminator', discriminator.cuda())
 
         self.add_module('l1_loss', l1_loss)
         self.add_module('perceptual_loss', perceptual_loss)
@@ -619,7 +632,12 @@ class InpaintingModel(BaseModel):
         elif "stylegan2" in self.inpaint_type:
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks), dim=1)
-            outputs = self.generator(inputs)
+            if self.generator.training:
+                outputs = self.generator(inputs)
+            else:
+                batch_size = images.shape[0]
+                noise = torch.zeros(batch_size, images.shape[2], images.shape[3], 1).float().cuda()
+                outputs = self.generator(inputs,noise)
         else:
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks), dim=1)

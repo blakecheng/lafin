@@ -886,14 +886,19 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
             self.g_blocks.append(block)
       
         self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+
         
-    def forward(self, x):
+    def forward(self, x, noise_input=None):
     
         batch_size = x.shape[0]
         image_size = self.image_size
         
         # style固定，noise不固定
-        input_noise = image_noise(batch_size, image_size)
+        if noise_input is not None:
+            input_noise = noise_input
+        else:
+            input_noise = image_noise(batch_size, image_size)
+            
         styles = self.single_style.expand(batch_size, -1, -1)
 
         for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
@@ -1231,7 +1236,6 @@ class stylegan_ae_facereenactment(BaseNetwork):
         
     def get_zatt(self,Y,drive_landmark):
         batch_size = Y.shape[0]
-        
         image_size = self.image_size
         with torch.no_grad():
             return self.ref_encoder(torch.cat((Y,drive_landmark), dim=1),None,None,None).view(batch_size,image_size,image_size,1)
@@ -1248,9 +1252,6 @@ class stylegan_ae_facereenactment(BaseNetwork):
     
         batch_size = refimages.shape[0]
         image_size = self.image_size
-        
-        # style固定，noise不固定
-
         input_noise = self.ref_encoder(torch.cat((refimages,ref_landmarks), dim=1),None,None,None).view(batch_size,image_size,image_size,1)
         
         with torch.no_grad():
@@ -1266,7 +1267,6 @@ class stylegan_ae_facereenactment(BaseNetwork):
         
         for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
             x = block(x)
-            
             if attn_block is not None:
                 x = attn_block(x)
 

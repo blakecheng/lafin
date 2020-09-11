@@ -26,10 +26,7 @@ class Lafin():
 
         self.debug = False
         self.model_name = model_name
-
-        # self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
-        # self.landmark_model = LandmarkDetectorModel(config).to(config.DEVICE)
-        
+      
         self.inpaint_model = InpaintingModel(config).cuda()
         
         if config.MODEL == 3 or config.MODEL == 1:
@@ -40,7 +37,6 @@ class Lafin():
         self.cal_mae = nn.L1Loss(reduction='sum')
         self.writer = SummaryWriter(os.path.join(config.PATH, 'logs'))
         
-
         #train mode
         if self.config.MODE == 1 or self.config.MODE == 3:
             if self.config.MODEL == 1 :
@@ -54,6 +50,8 @@ class Lafin():
                 self.val_dataset = Dataset(config, config.VAL_INPAINT_IMAGE_FLIST, config.VAL_INPAINT_LANDMARK_FLIST,
                                            config.TEST_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
+        
+        
                 
            
         # test mode
@@ -190,7 +188,7 @@ class Lafin():
 
                     for i in range(landmarks.shape[0]):
                         landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
-                        
+                    
                     outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks)
                     outputs_merged = (outputs * masks) + (images * (1-masks))
 
@@ -207,11 +205,6 @@ class Lafin():
                 if iteration >= max_iteration:
                     keep_training = False
                     break
-                
-                self.writer.add_scalar("train/gloss",gen_loss.cpu().item(),iteration)
-                self.writer.add_scalar("train/dloss",dis_loss.cpu().item(),iteration)
-                self.writer.add_scalar("train/psnr",psnr.item(),iteration)
-                self.writer.add_scalar("train/mae",mae.item(),iteration)
 
                 logs = [
                     ("epoch", epoch),
@@ -327,7 +320,7 @@ class Lafin():
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
                     
-                if epoch<10 or iteration % 10*self.config.SAVE_INTERVAL == 0:
+                if epoch<10:
                     torch.save({
                         'iteration': self.inpaint_model.iteration,
                         'generator': self.inpaint_model.generator.state_dict()
@@ -449,13 +442,22 @@ class Lafin():
                 outputs = self.inpaint_model(images, landmark_map, masks)
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
 
-                images_joint = stitch_images(
-                    self.postprocess(images),
-                    self.postprocess(inputs),
-                    self.postprocess(outputs),
-                    self.postprocess(outputs_merged),
-                    img_per_row=1
-                )
+                gtype = "generate"
+                if gtype=="inpaint":
+                    images_joint = stitch_images(
+                        self.postprocess(images),
+                        self.postprocess(inputs),
+                        self.postprocess(outputs),
+                        self.postprocess(outputs_merged),
+                        img_per_row=1
+                    )
+                elif gtype=="generate":
+                    images_joint = stitch_images(
+                        self.postprocess(images),
+                        self.postprocess(landmark_map),
+                        self.postprocess(outputs),
+                        img_per_row=1
+                    )
 
                 path_masked = os.path.join(self.results_path,self.model_name,'masked')
                 path_result = os.path.join(self.results_path, self.model_name,'result')
@@ -595,10 +597,6 @@ class Lafin():
                 inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1-masks[i,0,landmarks[i, :, 1], landmarks[i,:,0]]
 
             outputs = self.inpaint_model(images, landmark_map, masks)
-            if self.config.INPAINTOR == "faceshifter_reenactment2":
-                ref_landmarks,ref_images,outputs,z_id,out_id,is_the_same = outputs
-            elif self.config.INPAINTOR == "stylegan_ae_facereenactment":
-                ref_images,ref_landmarks,outputs,z_id,zatt,is_the_same = outputs
             outputs_merged = (outputs * masks) + (images * (1 - masks))
 
             
@@ -622,23 +620,13 @@ class Lafin():
                 img_per_row = image_per_row
             )
         elif model == 2:
-            if self.config.INPAINTOR == "faceshifter_reenactment2":
-                images = stitch_images(
-                    self.postprocess(images),
-                    self.postprocess(ref_landmarks),
-                    self.postprocess(ref_images),
-                    self.postprocess(outputs),
-                    img_per_row=image_per_row
-                )
-
-            else:
-                images = stitch_images(
-                    self.postprocess(images),
-                    self.postprocess(inputs),
-                    self.postprocess(outputs),
-                    self.postprocess(outputs_merged),
-                    img_per_row=image_per_row
-                )
+            images = stitch_images(
+                self.postprocess(images),
+                self.postprocess(inputs),
+                self.postprocess(outputs),
+                self.postprocess(outputs_merged),
+                img_per_row=image_per_row
+            )
 
 
 

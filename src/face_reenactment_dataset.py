@@ -21,7 +21,7 @@ class paired_Dataset(torch.utils.data.Dataset):
         
         self.clips = os.path.listdir(config_dic["root_dir"])
         self.frames = [os.path.listdir(os.path.join(config_dic["root_dir"],clip)) for clip in self.clips]
-        self.clip_count = [len(i) for i in]
+        self.clip_count = [len]
         
         self.data = 
         

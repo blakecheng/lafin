@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from .networks import MobileNetV2
+from .face_modules.model import Backbone
+import torch.nn.functional as F
 #from torch.utils.data.dataloader import pin_memory_batch
 
 class AdversarialLoss(nn.Module):
@@ -258,3 +260,22 @@ class Landmark_loss(nn.Module):
         landmark_true, landmark_pred = self.lm_detector(img_true),self.lm_detector(img_pred)
         landmark_loss = torch.norm((landmark_true-landmark_pred).reshape(-1,self.points_num*2),2,dim=1,keepdim=True)
         return torch.mean(landmark_loss)
+
+
+class IDLoss(nn.Module):
+    def __init__(self):
+        super(IDLoss,self).__init__()
+
+        arcface = Backbone(50, 0.6, 'ir_se').cuda()
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arcface.eval()
+        
+    def forward(self,img_true,img_pred):
+        with torch.no_grad():
+            img_true = F.interpolate(img_true, [112, 112], mode='bilinear', align_corners=True)
+            img_pred = F.interpolate(img_pred, [112, 112], mode='bilinear', align_corners=True)
+            feature_ture, _ = self.arcface(img_true)
+            feature_pred, _ = self.arcface(img_pred)
+        return  (1 - torch.cosine_similarity(feature_ture, feature_pred, dim=1)).mean()

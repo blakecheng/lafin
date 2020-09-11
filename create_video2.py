@@ -33,14 +33,20 @@ class VideoWriter:
 
 
 def main():
-    width = 1024
-    height = 256
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root_path', default="checkpoints/obama-stylegan-256-ae-4layers/results/inpaint" ,type=str)
+    parser.add_argument('--output_path', default="Obama_stylegan_mouth_inpainting.gif" ,type=str)
+    parser.add_argument('--type',default='gif',type = str, help = 'video type')
+    args = parser.parse_args()
     
+    root_path = args.root_path
+    output_path = args.output_path
+  
+    width = None
+    height = None
     num = 200
-    # root_path = "/data/chengbin/code/lafin/checkpoints/Obama_face_10_train/Obama_face/results/inpaint"
-    # root_path = "/home/public/cb/code/lafin_bak/checkpoints/celebahq-stylegan-256-ae-4layers/results/inpaint"
-    root_path = "checkpoints/obama-stylegan-256-ae-4layers/results/inpaint"
-    output_path = 'Obama_stylegan_mouth_inpainting.avi'
+    
+
     fps = 25
     
     import os
