@@ -27,7 +27,7 @@ class Lafin():
         self.debug = False
         self.model_name = model_name
       
-        self.inpaint_model = InpaintingModel(config).cuda()
+        self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
         
         if config.MODEL == 3 or config.MODEL == 1:
             self.landmark_model = LandmarkDetectorModel(config).cuda()
@@ -596,12 +596,15 @@ class Lafin():
             for i in range(inputs.shape[0]):
                 inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1-masks[i,0,landmarks[i, :, 1], landmarks[i,:,0]]
 
-            outputs = self.inpaint_model(images, landmark_map, masks)
-            outputs_merged = (outputs * masks) + (images * (1 - masks))
-
             
-            grid = torchvision.utils.make_grid(outputs_merged)
-            self.writer.add_image('sample_images', grid, iteration)
+            outputs = self.inpaint_model(images, landmark_map, masks)
+            
+            if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":
+                ref_landmarks,ref_images,rgb,input_noise,style,is_same = outputs
+            else:
+                outputs_merged = (outputs * masks) + (images * (1 - masks))
+                grid = torchvision.utils.make_grid(outputs_merged)
+                self.writer.add_image('sample_images', grid, iteration)
             
         if it is not None:
             iteration = it
@@ -620,13 +623,21 @@ class Lafin():
                 img_per_row = image_per_row
             )
         elif model == 2:
-            images = stitch_images(
-                self.postprocess(images),
-                self.postprocess(inputs),
-                self.postprocess(outputs),
-                self.postprocess(outputs_merged),
-                img_per_row=image_per_row
-            )
+            if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":
+                images = stitch_images(
+                    self.postprocess(images),
+                    self.postprocess(ref_images),
+                    self.postprocess(rgb),
+                    img_per_row=image_per_row
+                )
+            else:
+                images = stitch_images(
+                    self.postprocess(images),
+                    self.postprocess(inputs),
+                    self.postprocess(outputs),
+                    self.postprocess(outputs_merged),
+                    img_per_row=image_per_row
+                )
 
 
 

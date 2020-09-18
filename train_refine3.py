@@ -52,7 +52,7 @@ def postprocess(img):
 path = "/home/public/cb/code/lafin/checkpoints/celebahq-ae-lmfaceidin-256-512-latent_refine3"
 # path = "/home/public/cb/code/lafin/remote_checkpoint/celeba1024-all-Jul201101"
 gen_weights_path = os.path.join(path,'InpaintingModel_gen.pth')
-data = torch.load(gen_weights_path)
+data = torch.load(gen_weights_path,map_location="cuda:%s"%torch.cuda.current_device())
 
 refine_path = os.path.join(path,"refine_celeba")
 create_dir(os.path.join(refine_path,"checkpoint"))
@@ -87,6 +87,7 @@ refinetor = refinetor.cuda()
 
 if os.path.exists(os.path.join(refine_path,'checkpoint/refine.pth')):
     re_data = torch.load(os.path.join(refine_path,'checkpoint/refine.pth'))
+    start_iteration = re_data['iteration']
     refinetor.load_state_dict(re_data['refiner'])
   
 print("*********create discriminator*****************") 
@@ -95,7 +96,7 @@ discriminator = discriminator.cuda()
 
 if os.path.exists(os.path.join(refine_path,'checkpoint/refine_dis.pth')):
     re_data = torch.load(os.path.join(refine_path,'checkpoint/refine_dis.pth'))
-    refinetor.load_state_dict(re_data['discriminator'])
+    discriminator.load_state_dict(re_data['discriminator'])
 
 print("*********create dataset*****************") 
 train_dataset = Dataset(config,config.TRAIN_INPAINT_IMAGE_FLIST,config.TRAIN_INPAINT_LANDMARK_FLIST, config.TRAIN_MASK_FLIST, root=config.DATA_ROOT, augment=True, training=True)
@@ -151,7 +152,9 @@ dis_optimizer = optim.Adam(
 psnr = PSNR(255.0).cuda()
 cal_mae = nn.L1Loss(reduction='sum')
 
-for epoch in range(10000):
+
+
+for epoch in range(start_iteration,10000):
     print("Epoch %d " % epoch)
     progbar = Progbar(len(train_dataset), width=20, stateful_metrics=['epoch'])
     for items in train_loader:
@@ -159,8 +162,9 @@ for epoch in range(10000):
         refinetor.train()
         discriminator.train()
         
-        ref_optimizer.zero_grad()
         dis_optimizer.zero_grad()
+        ref_optimizer.zero_grad()
+        
         
         images, landmarks, masks = cuda(*items)
         
@@ -208,7 +212,12 @@ for epoch in range(10000):
         dis_fake_loss = adversarial_loss(dis_fake, False, True)
         dis_loss += (dis_real_loss + dis_fake_loss) / 2
 
-
+        
+        dis_loss.backward(retain_graph=True)
+        dis_optimizer.step()
+   
+        
+        
         # generator adversarial loss
         gen_input_fake = refine_result
         gen_fake, _ = discriminator(torch.cat((gen_input_fake, landmark_map), dim=1))
@@ -258,12 +267,12 @@ for epoch in range(10000):
         progbar.add(len(images), values=logs)
         write_log(os.path.join(refine_path,"log.dat"),logs)
         
-        if is_same==1:
-            dis_loss.backward(retain_graph=True)
-            dis_optimizer.step()
         
-        ref_loss.backward()
+        
+        
+        ref_loss.backward(retain_graph=True)
         ref_optimizer.step()
+        
         
         sample_image = stitch_images(
             postprocess(images),
@@ -276,13 +285,14 @@ for epoch in range(10000):
         #print(images.shape,landmark_map.shape,outputs.shape,ref_images.shape,ref_images.shape,refine_result.shape)
         sample_image.save(os.path.join(refine_path,"sample",str(epoch).zfill(5)+".png"))
     
-    torch.save({
-        'iteration': epoch,
-        'refiner': refinetor.state_dict()
-    }, os.path.join(refine_path,'checkpoint/refine.pth'))
-    
-    torch.save({
-        'iteration': epoch,
-        'discriminator': discriminator.state_dict()
-    }, os.path.join(refine_path,'checkpoint/refine_dis.pth'))
+        if epoch%500==0:
+            torch.save({
+                'iteration': epoch,
+                'refiner': refinetor.state_dict()
+            }, os.path.join(refine_path,'checkpoint/refine.pth'))
+            
+            torch.save({
+                'iteration': epoch,
+                'discriminator': discriminator.state_dict()
+            }, os.path.join(refine_path,'checkpoint/refine_dis.pth'))
 
