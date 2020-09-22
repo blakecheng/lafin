@@ -601,6 +601,9 @@ class Lafin():
             
             if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":
                 ref_landmarks,ref_images,rgb,input_noise,style,is_same = outputs
+            elif self.config.INPAINTOR == "stylegan_base_facereenactment":
+                images,landmarks,ref_images,ref_landmarks,output,rgbs,iatts,id_latent,lm_latent,is_same = outputs
+                rgb = output
             else:
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
                 grid = torchvision.utils.make_grid(outputs_merged)
@@ -623,7 +626,8 @@ class Lafin():
                 img_per_row = image_per_row
             )
         elif model == 2:
-            if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":
+            if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or \
+                self.config.INPAINTOR == "faceshifter_reenactment2" or self.config.INPAINTOR == "stylegan_base_facereenactment":
                 images = stitch_images(
                     self.postprocess(images),
                     self.postprocess(ref_images),

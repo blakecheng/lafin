@@ -28,7 +28,6 @@ from linear_attention_transformer import ImageLinearAttention
 from PIL import Image
 from pathlib import Path
 
-from .oneshot_facereencatment import fr_Encoder
 from .res_unet import MultiScaleResUNet
 
 try:
@@ -372,16 +371,21 @@ class GeneratorBlock(nn.Module):
         self.activation = leaky_relu()
         self.to_rgb = RGBBlock(latent_dim, filters, upsample_rgb, rgba)
 
+        ## (512,4,4),None,(1,512),(1,256,256,1)
+        ## (512,4,4),(3,8,8),...,...
+        ## ...
     def forward(self, x, prev_rgb, istyle, inoise):
         if self.upsample is not None:
             x = self.upsample(x)
 
         inoise = inoise[:, :x.shape[2], :x.shape[3], :]
-        noise1 = self.to_noise1(inoise).permute((0, 3, 2, 1))
-        noise2 = self.to_noise2(inoise).permute((0, 3, 2, 1))
+        noise1 = self.to_noise1(inoise).permute((0, 3, 2, 1)) 
+        ## INPUT: (256,256,1) output: (4, 4, 512)-> (512,4,4)
+        noise2 = self.to_noise2(inoise).permute((0, 3, 2, 1)) # 
 
         style1 = self.to_style1(istyle)
         x = self.conv1(x, style1)
+ 
         x = self.activation(x + noise1)
 
         style2 = self.to_style2(istyle)
@@ -390,6 +394,230 @@ class GeneratorBlock(nn.Module):
 
         rgb = self.to_rgb(x, prev_rgb, istyle)
         return x, rgb
+        ## (512,4,4),(3,8,8)
+        ## (512,8,8),(3,16,16)
+        ## (256, 16, 16), (3, 32, 32)
+        ## (128, 32, 32), (3, 64, 64)
+        ## (64, 64, 64), (3, 128, 128)
+        ## (32, 128, 128),(3, 256, 256)
+        ## (16, 256, 256), (3, 256, 256)
+        
+
+class Reenactment_DecoderBlock(nn.Module):
+    def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
+
+        self.to_style1 = nn.Linear(latent_dim, input_channels)
+        self.to_noise1 = nn.Linear(1, filters)
+        self.conv1 = Conv2DMod(input_channels, filters, 3)
+        
+        self.to_style2 = nn.Linear(latent_dim, filters)
+        self.to_noise2 = nn.Linear(1, filters)
+        self.conv2 = Conv2DMod(filters, filters, 3)
+
+        self.activation = leaky_relu()
+        self.to_rgb = RGBBlock(latent_dim, filters, upsample_rgb, rgba)
+
+    ## iatt:
+    ## (512,4,4)
+    ## (512,8,8)
+    ## (256, 16, 16)
+    ## (128, 32, 32)
+    ## (64, 64, 64)
+    ## (32, 128, 128)
+    ## (16, 256, 256)
+    def forward(self, x, prev_rgb, istyle, iatt):
+        if self.upsample is not None:
+            x = self.upsample(x)
+
+        style1 = self.to_style1(istyle)
+        x = self.conv1(x, style1)
+        x = self.activation(x + iatt)
+
+        style2 = self.to_style2(istyle)
+        x = self.conv2(x, style2)
+        x = self.activation(x + iatt)
+
+        rgb = self.to_rgb(x, prev_rgb, istyle)
+        return x, rgb
+    
+
+class Reenactment_EncoderBlock(nn.Module):
+    def __init__(self, input_channels, filters, downsample=True):
+        super().__init__()
+        self.conv_res = nn.Conv2d(input_channels, filters, 1, stride = (2 if downsample else 1))
+
+        self.net = nn.Sequential(
+            nn.Conv2d(input_channels, filters, 3, padding=1),
+            leaky_relu(),
+            nn.Conv2d(filters, filters, 3, padding=1),
+            leaky_relu()
+        )
+
+        self.downsample = nn.Conv2d(filters, filters, 3, padding = 1, stride = 2) if downsample else None
+
+    def forward(self, x):
+        res = self.conv_res(x)
+        x = self.net(x)
+        if self.downsample is not None:
+            x = self.downsample(x)
+        x = x + res
+        return x
+    
+class Reenactment_Encoder(nn.Module):
+    def __init__(self, image_size = 256 ,num_init_filters=3, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()
+        
+        if num_layers == None:
+            num_layers = int(log2(image_size) - 1)
+            self.num_layers = num_layers
+        else:
+            self.num_layers = num_layers
+         
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(num_layers)]
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters)) 
+        print("encoder:",filters)
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            is_not_last = ind != (len(chan_in_out) - 1)
+            not_first = ind != 0
+            block = Reenactment_EncoderBlock(in_chan, out_chan, not_first)
+            blocks.append(block)
+        
+#         blocks.append(nn.Conv2d(filters[-1], filters[-1], 3, padding = 1, stride = 2))
+        self.e_blocks = torch.nn.ModuleList(blocks)
+        
+    def forward(self, x):
+        iatts = []
+        for block in self.e_blocks:
+            x = block(x)
+            iatts.append(x)
+        return iatts
+    
+
+class Reenactment_Decoder(nn.Module):
+    def __init__(self, latent_dim = 512 ,image_size = 256 , style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()
+        
+        if num_layers == None:
+            num_layers = int(log2(image_size))
+            self.num_layers = num_layers
+        else:
+            self.num_layers = num_layers
+         
+        filters = [(network_capacity) * (2 ** (i)) for i in range(num_layers)[::-1]]
+        
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters)) 
+        print("dncoder:",filters)
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        
+        blocks = []
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            not_first = ind != 0
+            not_last = ind != (self.num_layers - 2)
+            block = Reenactment_DecoderBlock(
+                latent_dim,
+                in_chan, 
+                out_chan, 
+                upsample = not_first,
+                upsample_rgb = not_last,
+                rgba = transparent)
+            blocks.append(block)
+        self.d_blocks = torch.nn.ModuleList(blocks)
+        
+    def forward(self,x,styles,re_iatts):
+        rgb = None
+        rgbs = []
+        for block,style,iatt in zip(self.d_blocks,styles, re_iatts):
+            x, rgb = block(x, rgb, style, iatt)
+            rgbs.append(rgb)
+        return rgb,rgbs
+
+
+class Reenactment_Generator(nn.Module):
+     def __init__(self,latent_dim = 512, image_size = 256 ,num_init_filters=3, network_capacity = 16, 
+                  num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()   
+        self.encoder = Reenactment_Encoder(image_size = image_size ,
+                                           num_init_filters=num_init_filters, 
+                                           network_capacity = network_capacity,
+                                           num_layers = num_layers, 
+                                           transparent = transparent, 
+                                           attn_layers = attn_layers, 
+                                           no_const = no_const, 
+                                           fmap_max = fmap_max)
+        self.decoder = Reenactment_Decoder(latent_dim = latent_dim ,
+                                           image_size = image_size , 
+                                           network_capacity = network_capacity, 
+                                           num_layers = num_layers, 
+                                           transparent = transparent, 
+                                           attn_layers = attn_layers, 
+                                           no_const = no_const, 
+                                           fmap_max = fmap_max
+                                          )
+    
+        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 4, 4)))
+    
+     def forward(self,x,styles):
+        iatts = self.encoder(x)
+        re_iatts = iatts[::-1]
+        batch_size = styles[0].shape[0]
+        init_x = self.initial_block.expand(batch_size, -1, -1, -1)
+        output, rgbs = self.decoder(init_x,styles,re_iatts)
+        return output, rgbs, iatts
+    
+
+class stylegan_base_facereenactment(nn.Module):
+    def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
+        super().__init__()
+        
+        from .face_modules.model import Backbone
+        arcface = Backbone(50, 0.6, 'ir_se')
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arcface.eval()
+        
+        self.latent_dim = latent_dim
+        
+        self.generator = Reenactment_Generator(image_size = image_size,
+                                               fmap_max=fmap_max,
+                                               num_init_filters=4,
+                                              latent_dim =latent_dim)
+        self.depth = int(log2(image_size))-1
+        from .oneshot_facereenactment import Normal_Encoder
+        self.landmark_encoder = Normal_Encoder(1,3)
+    
+    def get_id_latent(self,Y):
+        batch_size = Y.shape[0]
+        with torch.no_grad():
+            self.arcface.eval()
+            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
+            zid, X_feats = self.arcface(resize_img)
+            id_latent = zid.view(batch_size, int(self.latent_dim/2))
+        return id_latent
+                                 
+    def get_lm_latent(self,lm):
+        return self.landmark_encoder(lm)
+                                 
+    def get_att(self,refx,lmx):
+        return self.generator.encoder(torch.cat((refx,lmx),dim=1))
+                                 
+    def forward(self,landmarks,refimages,ref_landmarks):
+        id_latent = self.get_id_latent(refimages)
+        lm_latent = self.get_lm_latent(landmarks)
+        style = torch.cat((id_latent,lm_latent),dim=1)
+        styles = [style for i in range(self.depth)]
+        output,rgbs,iatts = self.generator(torch.cat((refimages,ref_landmarks),dim=1),styles)
+        return output,rgbs,iatts,id_latent,lm_latent
+    
 
 
 class DiscriminatorBlock(nn.Module):
@@ -414,6 +642,7 @@ class DiscriminatorBlock(nn.Module):
         x = (x + res) * (1 / math.sqrt(2))
         return x
     
+
 class BaseNetwork(nn.Module):
     def __init__(self):
         super(BaseNetwork, self).__init__()
@@ -1031,7 +1260,7 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
-    
+
 #################################################################################################################################################################################
 
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
@@ -1159,7 +1388,7 @@ class stylegan_ae_facereenactment(BaseNetwork):
         from .face_modules.model import Backbone
         arcface = Backbone(50, 0.6, 'ir_se').cuda(3)
         arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False,map_location="cuda:3")
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth',map_location="cuda:%s"%torch.cuda.current_device()), strict=False)
         self.arcface = arcface
         
         self.image_size = image_size
@@ -2256,72 +2485,7 @@ class StyleGAN2(nn.Module):
     def forward(self, x):
         return x
     
-class generator_stylegan2(nn.Module):
-    def __init__(self, image_size, latent_dim = 512, fmap_max = 512, style_depth = 8, network_capacity = 16, transparent = False, fp16 = False, cl_reg = False, steps = 1, lr = 1e-4, fq_layers = [], fq_dict_size = 256, attn_layers = [], no_const = False):
-        super().__init__()
-        self.lr = lr
-        self.steps = steps
-        self.ema_updater = EMA(0.995)
 
-        self.S = StyleVectorizer(latent_dim, style_depth)
-        self.G = Generator(image_size, latent_dim, network_capacity, transparent = transparent, attn_layers = attn_layers, no_const = no_const, fmap_max = fmap_max)
-        self.D = Discriminator(image_size, network_capacity, fq_layers = fq_layers, fq_dict_size = fq_dict_size, attn_layers = attn_layers, transparent = transparent, fmap_max = fmap_max)
-
-        self.SE = StyleVectorizer(latent_dim, style_depth)
-        self.GE = Generator(image_size, latent_dim, network_capacity, transparent = transparent, attn_layers = attn_layers, no_const = no_const)
-
-        self.D_cl = None
-
-        if cl_reg:
-            from contrastive_learner import ContrastiveLearner
-            # experimental contrastive loss discriminator regularization
-            assert not transparent, 'contrastive loss regularization does not work with transparent images yet'
-            self.D_cl = ContrastiveLearner(self.D, image_size, hidden_layer='flatten')
-
-        # wrapper for augmenting all images going into the discriminator
-        self.D_aug = AugWrapper(self.D, image_size)
-
-        set_requires_grad(self.SE, False)
-        set_requires_grad(self.GE, False)
-
-        generator_params = list(self.G.parameters()) + list(self.S.parameters())
-        self.G_opt = AdamP(generator_params, lr = self.lr, betas=(0.5, 0.9))
-        self.D_opt = AdamP(self.D.parameters(), lr = self.lr, betas=(0.5, 0.9))
-
-        self._init_weights()
-        self.reset_parameter_averaging()
-
-        self.cuda()
-        
-        if fp16:
-            (self.S, self.G, self.D, self.SE, self.GE), (self.G_opt, self.D_opt) = amp.initialize([self.S, self.G, self.D, self.SE, self.GE], [self.G_opt, self.D_opt], opt_level='O2')
-
-    def _init_weights(self):
-        for m in self.modules():
-            if type(m) in {nn.Conv2d, nn.Linear}:
-                nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
-
-        for block in self.G.blocks:
-            nn.init.zeros_(block.to_noise1.weight)
-            nn.init.zeros_(block.to_noise2.weight)
-            nn.init.zeros_(block.to_noise1.bias)
-            nn.init.zeros_(block.to_noise2.bias)
-
-    def EMA(self):
-        def update_moving_average(ma_model, current_model):
-            for current_params, ma_params in zip(current_model.parameters(), ma_model.parameters()):
-                old_weight, up_weight = ma_params.data, current_params.data
-                ma_params.data = self.ema_updater.update_average(old_weight, up_weight)
-
-        update_moving_average(self.SE, self.S)
-        update_moving_average(self.GE, self.G)
-
-    def reset_parameter_averaging(self):
-        self.SE.load_state_dict(self.S.state_dict())
-        self.GE.load_state_dict(self.G.state_dict())
-
-    def forward(self, x):
-        return x
     
 
 class Trainer():

@@ -11,7 +11,7 @@ import torch
 
 import random
 
-from .oneshot_facereencatment import Normal_Encoder
+from .oneshot_facereenactment import Normal_Encoder
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
