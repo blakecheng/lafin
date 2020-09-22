@@ -61,8 +61,9 @@ class Lafin():
             else:
                 self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST, root = config.DATA_ROOT,
                                             augment=False, training=False)
-
-
+                
+        print("data root is:", config.DATA_ROOT)
+        
         self.samples_path = os.path.join(config.PATH, 'samples')
         self.results_path = os.path.join(config.PATH, 'results')
 
