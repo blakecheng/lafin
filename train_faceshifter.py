@@ -53,8 +53,13 @@ cfg = config()
 #     "/data/chengbin/celeba/celeba-hq/celeba-1024-lafin/landmarks.flist")
 
 train_dataset = Dataset(cfg,
+<<<<<<< HEAD
+    "/home/chengbin/code/lafin_school/datasets/Obama_face/train/images.flist",
+    "/home/chengbin/code/lafin_school/datasets/Obama_face/train/landmarks.flist")
+=======
     "/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin/images.flist",
     "/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin/landmarks.flist")
+>>>>>>> 8befe85313a346cb4866eabe5e334fec0d194ba1
 
 train_loader = DataLoader(
             dataset=train_dataset,

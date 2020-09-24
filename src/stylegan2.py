@@ -359,7 +359,7 @@ class GeneratorBlock(nn.Module):
     def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False):
         super().__init__()
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
-
+        
         self.to_style1 = nn.Linear(latent_dim, input_channels)
         self.to_noise1 = nn.Linear(1, filters)
         self.conv1 = Conv2DMod(input_channels, filters, 3)
@@ -572,6 +572,57 @@ class Reenactment_Generator(nn.Module):
         init_x = self.initial_block.expand(batch_size, -1, -1, -1)
         output, rgbs = self.decoder(init_x,styles,re_iatts)
         return output, rgbs, iatts
+
+
+class ID_LM_autoencoder(nn.Module):
+    def __init__(self,latent_dim = 512, image_size = 256 ,num_init_filters=3, network_capacity = 16, 
+                  num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()   
+
+        from .face_modules.model import Backbone
+        arcface = Backbone(50, 0.6, 'ir_se')
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arcface.eval()
+        
+        self.latent_dim = latent_dim
+        
+        self.generator = Reenactment_Generator(image_size = image_size,
+                                               fmap_max=fmap_max,
+                                               num_init_filters=4,
+                                              latent_dim =latent_dim)
+        self.depth = int(log2(image_size))-1
+        from .oneshot_facereenactment import Normal_Encoder
+        self.landmark_encoder = Normal_Encoder(1,3)
+    
+    def get_id_latent(self,Y):
+        batch_size = Y.shape[0]
+        with torch.no_grad():
+            self.arcface.eval()
+            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
+            zid, X_feats = self.arcface(resize_img)
+            id_latent = zid.view(batch_size, int(self.latent_dim/2))
+        return id_latent
+                                 
+    def get_lm_latent(self,lm):
+        return self.landmark_encoder(lm)
+                                 
+    def get_att(self,refx,lmx):
+        return self.generator.encoder(torch.cat((refx,lmx),dim=1))
+    
+    def forward(self,x,landmarks,source_img=None):
+        id_latent = self.get_id_latent(x)
+        lm_latent = self.get_lm_latent(landmarks)
+        style = torch.cat((id_latent,lm_latent),dim=1)
+        styles = [style for i in range(self.depth)]
+        input_shape = x.shape
+        if source_img == None:
+            input_tensor = torch.rand(input_shape[0],4,input_shape[2],input_shape[3]).cuda()
+        else:
+            input_tensor = source_img
+        output,rgbs,iatts = self.generator(input_tensor,styles)
+        return output, rgbs, iatts,id_latent,lm_latent
     
 
 class stylegan_base_facereenactment(nn.Module):
@@ -616,6 +667,50 @@ class stylegan_base_facereenactment(nn.Module):
         style = torch.cat((id_latent,lm_latent),dim=1)
         styles = [style for i in range(self.depth)]
         output,rgbs,iatts = self.generator(torch.cat((refimages,ref_landmarks),dim=1),styles)
+        return output,rgbs,iatts,id_latent,lm_latent
+
+class stylegan_base_faceswap(nn.Module):
+    def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
+        super().__init__()
+        
+        from .face_modules.model import Backbone
+        arcface = Backbone(50, 0.6, 'ir_se')
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arcface.eval()
+        
+        self.latent_dim = latent_dim
+        
+        self.generator = Reenactment_Generator(image_size = image_size,
+                                               fmap_max=fmap_max,
+                                               num_init_filters=4,
+                                              latent_dim =latent_dim)
+        self.depth = int(log2(image_size))-1
+        from .oneshot_facereenactment import Normal_Encoder
+        self.landmark_encoder = Normal_Encoder(1,3)
+    
+    def get_id_latent(self,Y):
+        batch_size = Y.shape[0]
+        with torch.no_grad():
+            self.arcface.eval()
+            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
+            zid, X_feats = self.arcface(resize_img)
+            id_latent = zid.view(batch_size, int(self.latent_dim/2))
+        return id_latent
+                                 
+    def get_lm_latent(self,lm):
+        return self.landmark_encoder(lm)
+                                 
+    def get_att(self,refx,lmx):
+        return self.generator.encoder(torch.cat((refx,lmx),dim=1))
+                                 
+    def forward(self,images,landmarks,refimages):
+        id_latent = self.get_id_latent(refimages)
+        lm_latent = self.get_lm_latent(landmarks)
+        style = torch.cat((id_latent,lm_latent),dim=1)
+        styles = [style for i in range(self.depth)]
+        output,rgbs,iatts = self.generator(torch.cat((images,landmarks),dim=1),styles)
         return output,rgbs,iatts,id_latent,lm_latent
     
 
@@ -905,17 +1000,6 @@ class stylegan_L2I_Generator2(BaseNetwork):
         
         return rgb
     
-
-
-
-
-# class Landmark_guided_inpaintor(nn.Module):
-#     def __init__(self):
-#         super(Landmark_guided_inpaintor, self).__init__()
-#         Lencoder = Encoder(in_c=1,depth=3)
-        
-#     def forward:
-#         pass
 
 
 class ref_guided_inpaintor(BaseNetwork):
@@ -1268,9 +1352,10 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         super().__init__()
         from .face_modules.model import Backbone
         arcface = Backbone(50, 0.6, 'ir_se').cuda()
-        arcface.eval()
+        
         arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
         self.arcface = arcface
+        self.arcface.eval()
         
         self.image_size = image_size
         self.latent_dim = latent_dim
@@ -1305,8 +1390,6 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
 
             attn_blocks.append(attn_fn)
 
-            #quantize_fn = PermuteToFrom(VectorQuantize(out_chan, fq_dict_size)) if num_layer in fq_layers else None
-            #quantize_blocks.append(quantize_fn)
             
         self.e_blocks = nn.ModuleList(blocks)
         self.e_attn_blocks = nn.ModuleList(attn_blocks)
@@ -1333,7 +1416,6 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
 
             self.g_attns.append(attn_fn)
-
             block = GeneratorBlock(
                 latent_dim,
                 in_chan,
@@ -1358,6 +1440,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             input_noise = input_noise
         
         with torch.no_grad():
+            self.arcface.eval()
             resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
             zid, X_feats = self.arcface(resize_img)
             styles = zid.view(batch_size, 1, self.latent_dim)
@@ -1380,15 +1463,17 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
+
+        
     
 
 class stylegan_ae_facereenactment(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
         super().__init__()
         from .face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se').cuda(3)
+        arcface = Backbone(50, 0.6, 'ir_se')
         arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth',map_location="cuda:%s"%torch.cuda.current_device()), strict=False)
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
         self.arcface = arcface
         
         self.image_size = image_size
@@ -1577,6 +1662,8 @@ class stylegan_ae_facereenactment2(BaseNetwork):
 
         self.g_blocks = nn.ModuleList([])
         self.g_attns = nn.ModuleList([])
+
+        print(in_chan,out_chan)
         
         for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
             not_first = ind != 0
