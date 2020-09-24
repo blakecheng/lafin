@@ -28,14 +28,23 @@ class Lafin():
         self.debug = False
         self.model_name = model_name
       
-        self.inpaint_model = InpaintingModel(config).cuda()
         
         
+        if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
+            print("put inpaint_model to multi-gpus")
+            self.local_rank = config.LocalRank
+            torch.cuda.set_device(self.local_rank)
+            self.inpaint_model = InpaintingModel(config)
+            self.inpaint_model = torch.nn.parallel.DistributedDataParallel(self.inpaint_model.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+            self.inpaint_model = self.inpaint_model.module      
+        else:
+            self.inpaint_model = InpaintingModel(config)
+      
         if config.MODEL == 3 or config.MODEL == 1:
             self.landmark_model = LandmarkDetectorModel(config).cuda()
 
 
-        self.psnr = PSNR(255.0).to(config.DEVICE)
+        self.psnr = PSNR(255.0).cuda()
         self.cal_mae = nn.L1Loss(reduction='sum')
         self.writer = SummaryWriter(os.path.join(config.PATH, 'logs'))
         

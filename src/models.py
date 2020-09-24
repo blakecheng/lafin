@@ -228,16 +228,16 @@ class InpaintingModel(BaseModel):
             generator = generator.cuda()
             discriminator = discriminator.cuda()
         else:
-            if len(config.GPU) > 1:
-                if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
-                    generator = torch.nn.parallel.DistributedDataParallel(generator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
-                    discriminator = torch.nn.parallel.DistributedDataParallel(discriminator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
-                else:
-                    generator = nn.DataParallel(generator)
-                    discriminator = nn.DataParallel(discriminator)
-            else:
-                generator = generator.cuda()
-                discriminator = discriminator.cuda()
+            # if len(config.GPU) > 1:
+            #     if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
+            #         generator = torch.nn.parallel.DistributedDataParallel(generator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+            #         discriminator = torch.nn.parallel.DistributedDataParallel(discriminator.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+            #     else:
+            #         generator = nn.DataParallel(generator)
+            #         discriminator = nn.DataParallel(discriminator)
+            # else:
+            generator = generator.cuda()
+            discriminator = discriminator.cuda()
 
 
         l1_loss = nn.L1Loss().cuda()
@@ -261,6 +261,8 @@ class InpaintingModel(BaseModel):
             or self.inpaint_type == "stylegan_base_faceae"   :
             landmark_loss = Landmark_loss()
             self.add_module('landmark_loss',landmark_loss)
+            
+        
         # Apex
         
         self.gen_optimizer = optim.Adam(
@@ -626,7 +628,7 @@ class InpaintingModel(BaseModel):
         
         # zatt loss
         # Y VS ref
-        Y_zatts = self.generator.module.get_att(outputs,landmarks)
+        Y_zatts = self.generator.get_att(outputs,landmarks)
         
         batch_size = images.shape[0]
         L_attr = 0
@@ -639,7 +641,7 @@ class InpaintingModel(BaseModel):
         # zid loss
         # Y VS ref
         with torch.no_grad():
-            Y_id = self.generator.module.get_id_latent(outputs)
+            Y_id = self.generator.get_id_latent(outputs)
             L_id = self.config.ID_LOSS_WEIGHT* (1 - torch.cosine_similarity(id_latent, Y_id, dim=1)).mean() 
         gen_loss += L_id
         
@@ -789,7 +791,7 @@ class InpaintingModel(BaseModel):
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
         
         # zatt loss
-        Y_zatts = self.generator.module.get_att(outputs,landmarks)
+        Y_zatts = self.generator.get_att(outputs,landmarks)
         
         batch_size = images.shape[0]
         L_attr = 0
@@ -801,7 +803,7 @@ class InpaintingModel(BaseModel):
         
         # zid loss
         with torch.no_grad():
-            Y_id = self.generator.module.get_id_latent(outputs)
+            Y_id = self.generator.get_id_latent(outputs)
             L_id = self.config.ID_LOSS_WEIGHT* (1 - torch.cosine_similarity(id_latent, Y_id, dim=1)).mean() 
         gen_loss += L_id
         

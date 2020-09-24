@@ -88,8 +88,8 @@ if __name__ == "__main__":
                 "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin/",
                 "data_path":"/cache/user-job-dir/code/celeba-lafin",
                 "dataset_path": "datasets/celebahqr",
-                "config_path": "checkpoints/celebahq_styleganbasefacereenactment/config.yml"
-                "checkpoint_name": "celebahq_styleganbasefacereenactment",
+                "config_path": "checkpoints/celebahq_styleganbaseae/config.yml"
+                "checkpoint_name": "celebahq_styleganbaseae",
                 "s3save_path":"s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55/remote_checkpoints"
                 
             },
@@ -143,8 +143,8 @@ if __name__ == "__main__":
         ## 另一些情况
         os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
-
-        os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
+        os.system("python -m torch.distributed.launch --nproc_per_node=2 train.py --model 2 %s --data_path %s --is_dist"%(checkpoint_path,dataset_path))
+        #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
         copy_dataset(checkpoint_path, path_dict[path_cfg]["s3save_path"])
 
 

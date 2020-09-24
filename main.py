@@ -11,7 +11,6 @@ from src.lafin import Lafin
 
 def main(mode=None):
     r"""starts the model
-
     Args:
         mode (int): 1: train, 2: test, 3: eval, reads from config file if not specified
     """
@@ -72,7 +71,6 @@ def main(mode=None):
 
 def load_config(mode=None):
     r"""loads model config
-
     Args:
         mode (int): 1: train, 2: test, 3: eval, reads from config file if not specified
     """
@@ -114,6 +112,7 @@ def load_config(mode=None):
     if args.is_dist:
         torch.distributed.init_process_group(backend="nccl")
         config.DISTRIBUTED = True
+        torch.cuda.set_device(args.local_rank)
     config.LocalRank = args.local_rank
         
     # train mode
