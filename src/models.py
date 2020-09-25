@@ -8,11 +8,13 @@ from .networks import InpaintGenerator, Discriminator
 from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
-from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,ID_LM_autoencoder
+from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,stylegan_base_faceae
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
 from .faceshifter_generator import faceshifter_inpaintor,faceshifter_reenactment,faceshifter_reenactment2
 from .oneshot_facereenactment import Normal_Encoder
+from .stylegan2 import Discriminator as style_dis
+
 # from .faceshifter_generator import faceshifter_sin
 import numpy as np
 
@@ -102,7 +104,7 @@ class InpaintingModel(BaseModel):
             image_size = config.INPUT_SIZE
             latent_dim = config.LATENT
             fmap_max =  config.FMAP_MAX
-            generator = ID_LM_autoencoder(image_size=image_size, fmap_max= fmap_max,latent_dim= latent_dim)
+            generator = stylegan_base_faceae(image_size=image_size, fmap_max= fmap_max,latent_dim= latent_dim)
         elif self.inpaint_type == "stylegan_base_faceswap":
             print("#####################")
             print("USE stylegan_base_faceswap generator!")
@@ -166,7 +168,7 @@ class InpaintingModel(BaseModel):
             latent_dim = config.LATENT
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
-            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = True)
         elif self.inpaint_type == "stylegan2_unet": 
             print("#####################")
             print("USE stylegan generator, unet!")
@@ -220,8 +222,8 @@ class InpaintingModel(BaseModel):
         else:
             generator = InpaintGenerator()
         
-        discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
-        
+        #discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
+        discriminator = style_dis(image_size = config.INPUT_SIZE,transparent=True)
         
 
         if use_apex == True:
@@ -791,15 +793,15 @@ class InpaintingModel(BaseModel):
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
         
         # zatt loss
-        Y_zatts = self.generator.get_att(outputs,landmarks)
+        # Y_zatts = self.generator.get_att(outputs,landmarks)
         
-        batch_size = images.shape[0]
-        L_attr = 0
-        for i in range(len(iatts)):
-            L_attr += torch.mean(torch.pow(Y_zatts[i] - iatts[i], 2).reshape(batch_size, -1), dim=1).mean()
+        # batch_size = images.shape[0]
+        # L_attr = 0
+        # for i in range(len(iatts)):
+        #     L_attr += torch.mean(torch.pow(Y_zatts[i] - iatts[i], 2).reshape(batch_size, -1), dim=1).mean()
 
-        gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
-        gen_loss += gen_att_loss
+        # gen_att_loss = self.config.ATT_LOSS_WEIGHT * L_attr/ 2.0
+        # gen_loss += gen_att_loss
         
         # zid loss
         with torch.no_grad():
@@ -820,7 +822,7 @@ class InpaintingModel(BaseModel):
             ("gcontent_l",gen_content_loss.item()),
             ("gstyle_l",gen_style_loss.item()),
             ("gtv_l",tv_loss.item()),
-            ("gatt_l",gen_att_loss.item()),
+            #("gatt_l",gen_att_loss.item()),
             ("glandmark_l",gen_landmark_loss.item()),
             ("gid_l",L_id.item()),
             ("dLoss",dis_loss.item())

@@ -83,31 +83,34 @@ if __name__ == "__main__":
     path_dict = {
         "8613":
             {
-                "s3code_code_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55/code",
+                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
                 "code_path":"/cache/user-job-dir/code",
                 "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin/",
-                "data_path":"/cache/user-job-dir/code/celeba-lafin",
                 "dataset_path": "datasets/celebahqr",
-                "config_path": "checkpoints/celebahq_styleganbaseae/config.yml",
-                "checkpoint_name": "celebahq_styleganbaseae",
-                "s3save_path":"s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55/remote_checkpoints/celebahq_styleganbaseae"
-                
+                "config_path": "checkpoints/celebahq-ae-lmfaceidin-256-512-latent/config.yml",
+                "checkpoint_name": "celebahq_ae_512",
             },
     }
+    
+    
 
     if mode == "remote":
         import moxing as mox
+        import os
 
         path_cfg = "8613"
-        s3code_path = path_dict[path_cfg]["s3code_code_path"]
+        
+        s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
         code_path = path_dict[path_cfg]["code_path"]
         
 
-        s3data_path = path_dict[path_cfg]["s3data_path"]
+        s3data_path = os.path.join(path_dict[path_cfg]["code_path"],"celebahq_lafin_data")
         data_path = path_dict[path_cfg]["data_path"]
 
         suffix = time.strftime("%b%d%H%M")
         dataset_path = path_dict[path_cfg]["dataset_path"]
+        
+        s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remotecheckpoints",path_dict[path_cfg]["checkpoint_name"]))
         
         #######################################################
         checkpoint_path = "remote_checkpoints/%s-%s"%(path_dict[path_cfg]["checkpoint_name"],suffix)
@@ -125,7 +128,7 @@ if __name__ == "__main__":
         create_config(dataset_path, checkpoint_path,data_path, path_dict[path_cfg]["config_path"])
         ######################################################################
 
-        t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,path_dict[path_cfg]["s3save_path"],))
+        t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,s3savepath,))
         t.start()
 
         t = threading.Thread(target=show_nvidia)
@@ -145,7 +148,7 @@ if __name__ == "__main__":
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
         os.system("python -m torch.distributed.launch --nproc_per_node=8 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
         #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
-        copy_dataset(checkpoint_path, path_dict[path_cfg]["s3save_path"])
+        copy_dataset(checkpoint_path, s3savepath)
 
 
 

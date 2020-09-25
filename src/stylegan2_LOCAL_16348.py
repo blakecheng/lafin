@@ -359,7 +359,7 @@ class GeneratorBlock(nn.Module):
     def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False):
         super().__init__()
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
-        
+
         self.to_style1 = nn.Linear(latent_dim, input_channels)
         self.to_noise1 = nn.Linear(1, filters)
         self.conv1 = Conv2DMod(input_channels, filters, 3)
@@ -404,44 +404,20 @@ class GeneratorBlock(nn.Module):
         
 
 class Reenactment_DecoderBlock(nn.Module):
-    def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False, add_trans = False):
+    def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False):
         super().__init__()
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
 
         self.to_style1 = nn.Linear(latent_dim, input_channels)
-        # self.to_noise1 = nn.Linear(1, filters)
+        self.to_noise1 = nn.Linear(1, filters)
         self.conv1 = Conv2DMod(input_channels, filters, 3)
         
         self.to_style2 = nn.Linear(latent_dim, filters)
-        # self.to_noise2 = nn.Linear(1, filters)
+        self.to_noise2 = nn.Linear(1, filters)
         self.conv2 = Conv2DMod(filters, filters, 3)
 
         self.activation = leaky_relu()
         self.to_rgb = RGBBlock(latent_dim, filters, upsample_rgb, rgba)
-        
-        self.add_trans = add_trans
-        if add_trans == True:
-            self.conv_block1 = self.conv_block = nn.Sequential(
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(
-                    filters, filters, kernel_size=3, stride=1, padding=1
-                ),
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(filters, filters, kernel_size=3, padding=1),
-            )
-            
-            self.conv_block2 = self.conv_block = nn.Sequential(
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(
-                    filters, filters, kernel_size=3, stride=1, padding=1
-                ),
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(filters, filters, kernel_size=3, padding=1),
-            )
 
     ## iatt:
     ## (512,4,4)
@@ -456,22 +432,12 @@ class Reenactment_DecoderBlock(nn.Module):
             x = self.upsample(x)
 
         style1 = self.to_style1(istyle)
-        
         x = self.conv1(x, style1)
-        
-        if self.add_trans == True:
-            x = self.activation(x + self.conv_block1(iatt))
-        else:
-            x = self.activation(x + iatt)
-    
+        x = self.activation(x + iatt)
+
         style2 = self.to_style2(istyle)
-        
         x = self.conv2(x, style2)
-        
-        if self.add_trans == True:
-            x = self.activation(x + self.conv_block2(iatt))
-        else:
-            x = self.activation(x + iatt)
+        x = self.activation(x + iatt)
 
         rgb = self.to_rgb(x, prev_rgb, istyle)
         return x, rgb
@@ -504,7 +470,7 @@ class Reenactment_Encoder(nn.Module):
         super().__init__()
         
         if num_layers == None:
-            num_layers = int(log2(image_size) - 2)
+            num_layers = int(log2(image_size) - 1)
             self.num_layers = num_layers
         else:
             self.num_layers = num_layers
@@ -512,16 +478,15 @@ class Reenactment_Encoder(nn.Module):
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(num_layers)]
         set_fmap_max = partial(min, fmap_max)
         filters = list(map(set_fmap_max, filters)) 
-        self.filters = filters
         print("encoder:",filters)
         chan_in_out = list(zip(filters[:-1], filters[1:]))
 
         blocks = []
         for ind, (in_chan, out_chan) in enumerate(chan_in_out):
             num_layer = ind + 1
-#             is_not_last = ind != (len(chan_in_out) - 1)
-#             not_first = ind != 0
-            block = Reenactment_EncoderBlock(in_chan, out_chan, True)
+            is_not_last = ind != (len(chan_in_out) - 1)
+            not_first = ind != 0
+            block = Reenactment_EncoderBlock(in_chan, out_chan, not_first)
             blocks.append(block)
         
 #         blocks.append(nn.Conv2d(filters[-1], filters[-1], 3, padding = 1, stride = 2))
@@ -534,12 +499,13 @@ class Reenactment_Encoder(nn.Module):
             iatts.append(x)
         return iatts
     
+
 class Reenactment_Decoder(nn.Module):
-    def __init__(self, latent_dim = 512 ,image_size = 256 , style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512, add_trans=False):
+    def __init__(self, latent_dim = 512 ,image_size = 256 , style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
         super().__init__()
         
         if num_layers == None:
-            num_layers = int(log2(image_size)-2)
+            num_layers = int(log2(image_size))
             self.num_layers = num_layers
         else:
             self.num_layers = num_layers
@@ -547,9 +513,8 @@ class Reenactment_Decoder(nn.Module):
         filters = [(network_capacity) * (2 ** (i)) for i in range(num_layers)[::-1]]
         
         set_fmap_max = partial(min, fmap_max)
-        filters = list(map(set_fmap_max, filters))
-        self.filters = filters
-        print("decoder:",filters)
+        filters = list(map(set_fmap_max, filters)) 
+        print("dncoder:",filters)
         chan_in_out = list(zip(filters[:-1], filters[1:]))
 
         
@@ -561,10 +526,9 @@ class Reenactment_Decoder(nn.Module):
                 latent_dim,
                 in_chan, 
                 out_chan, 
-                upsample = True,
+                upsample = not_first,
                 upsample_rgb = not_last,
-                rgba = transparent,
-                add_trans = add_trans)
+                rgba = transparent)
             blocks.append(block)
         self.d_blocks = torch.nn.ModuleList(blocks)
         
@@ -599,7 +563,7 @@ class Reenactment_Generator(nn.Module):
                                            fmap_max = fmap_max
                                           )
     
-        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 8, 8)))
+        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 4, 4)))
     
      def forward(self,x,styles):
         iatts = self.encoder(x)
@@ -609,31 +573,11 @@ class Reenactment_Generator(nn.Module):
         output, rgbs = self.decoder(init_x,styles,re_iatts)
         return output, rgbs, iatts
 
-    
-class stylegan_base_faceae(nn.Module):
-    def __init__(self,latent_dim = 1024, image_size = 256 ,num_init_filters=3, network_capacity = 16, \
-                  num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512 , 
-                 has_source = False , fit_noise = False):
-        super().__init__()   
 
-        from src.face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se')
-        arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
-        self.arcface = arcface
-        self.arcface.eval()
-        
-        self.latent_dim = latent_dim
-        
-        
-        self.encoder = Reenactment_Encoder(image_size = image_size ,
-                                           num_init_filters=num_init_filters, 
-                                           network_capacity = network_capacity,
-                                           num_layers = num_layers, 
-                                           transparent = transparent, 
-                                           attn_layers = attn_layers, 
-                                           no_const = no_const, 
-                                           fmap_max = fmap_max)
+class stylegan_base_ae(nn.Module):
+     def __init__(self,latent_dim = 512, image_size = 256 ,num_init_filters=3, network_capacity = 16, 
+                  num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()   
         self.decoder = Reenactment_Decoder(latent_dim = latent_dim ,
                                            image_size = image_size , 
                                            network_capacity = network_capacity, 
@@ -641,66 +585,22 @@ class stylegan_base_faceae(nn.Module):
                                            transparent = transparent, 
                                            attn_layers = attn_layers, 
                                            no_const = no_const, 
-                                           fmap_max = fmap_max,
-                                           add_trans = True
+                                           fmap_max = fmap_max
                                           )
-        self.had_source = has_source
-        self.fit_noise = fit_noise
-        
-        
-        nosie_list = []
-        self.filters = self.decoder.filters
-        if fit_noise == True:
-            print("fit noise:")
-            for i in range(len(self.filters)-1,-1,-1):
-                print((1,self.filters[i] , 2**(i+3), 2**(i+3)))
-                nosie_list.append(nn.Parameter(torch.randn((1,self.filters[i] , 2**(i+3), 2**(i+3)))))
-            self.noise_list = nosie_list
-            
-            
-        self.depth = int(log2(image_size))-2
-        from src.oneshot_facereenactment import Normal_Encoder
-        self.landmark_encoder = Normal_Encoder(1,3)
-        
-    def get_id_latent(self,Y):
-        batch_size = Y.shape[0]
-        with torch.no_grad():
-            self.arcface.eval()
-            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
-            zid, X_feats = self.arcface(resize_img)
-            id_latent = zid.view(batch_size, int(self.latent_dim/2))
-        return id_latent
-                                 
-    def get_lm_latent(self,lm):
-        return self.landmark_encoder(lm)
-                                 
-    def get_att(self,refx,lmx):
-        return self.encoder(torch.cat((refx,lmx),dim=1))
-        
-    def forward(self,x,landmarks,source_img=None,noise=None):
-        batch_size = x.shape[0]
+    
+        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 4, 4)))
+    
+     def forward(self,x,landmarks):
         id_latent = self.get_id_latent(x)
         lm_latent = self.get_lm_latent(landmarks)
         style = torch.cat((id_latent,lm_latent),dim=1)
         styles = [style for i in range(self.depth)]
         
-        if source_img is not None:
-            iatts = self.encoder(source_img)
-        elif (source_img is None) and (noise is not None):
-            iatts = noise
-        elif self.fit_noise == True:
-            iatts = [noise.expand(batch_size,-1,-1,-1) for noise in self.noise_list]
-        else:
-            nosie_list = []
-            for i in range(len(self.filters)-1,-1,-1):
-                nosie_list.append(torch.randn((batch_size,self.filters[i] , 2**(i+3), 2**(i+3))).cuda())
-                iatts = nosie_list
+        batch_size = styles[0].shape[0]
+        init_x = self.initial_block.expand(batch_size, -1, -1, -1)
+        output, rgbs = self.decoder(init_x,styles,noise)
+        return output, rgbs, iatts
         
-        re_iatts = iatts[::-1]
-        
-        output, rgbs = self.decoder(re_iatts[0],styles,re_iatts[1:])
-        return output,rgbs,iatts,id_latent,lm_latent
-    
 
 class stylegan_base_facereenactment(nn.Module):
     def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
@@ -746,49 +646,6 @@ class stylegan_base_facereenactment(nn.Module):
         output,rgbs,iatts = self.generator(torch.cat((refimages,ref_landmarks),dim=1),styles)
         return output,rgbs,iatts,id_latent,lm_latent
 
-class stylegan_base_faceswap(nn.Module):
-    def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
-        super().__init__()
-        
-        from .face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se')
-        arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
-        self.arcface = arcface
-        self.arcface.eval()
-        
-        self.latent_dim = latent_dim
-        
-        self.generator = Reenactment_Generator(image_size = image_size,
-                                               fmap_max=fmap_max,
-                                               num_init_filters=4,
-                                              latent_dim =latent_dim)
-        self.depth = int(log2(image_size))-1
-        from .oneshot_facereenactment import Normal_Encoder
-        self.landmark_encoder = Normal_Encoder(1,3)
-    
-    def get_id_latent(self,Y):
-        batch_size = Y.shape[0]
-        with torch.no_grad():
-            self.arcface.eval()
-            resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
-            zid, X_feats = self.arcface(resize_img)
-            id_latent = zid.view(batch_size, int(self.latent_dim/2))
-        return id_latent
-                                 
-    def get_lm_latent(self,lm):
-        return self.landmark_encoder(lm)
-                                 
-    def get_att(self,refx,lmx):
-        return self.generator.encoder(torch.cat((refx,lmx),dim=1))
-                                 
-    def forward(self,images,landmarks,refimages):
-        id_latent = self.get_id_latent(refimages)
-        lm_latent = self.get_lm_latent(landmarks)
-        style = torch.cat((id_latent,lm_latent),dim=1)
-        styles = [style for i in range(self.depth)]
-        output,rgbs,iatts = self.generator(torch.cat((images,landmarks),dim=1),styles)
-        return output,rgbs,iatts,id_latent,lm_latent
     
 
 
@@ -1077,6 +934,17 @@ class stylegan_L2I_Generator2(BaseNetwork):
         
         return rgb
     
+
+
+
+
+# class Landmark_guided_inpaintor(nn.Module):
+#     def __init__(self):
+#         super(Landmark_guided_inpaintor, self).__init__()
+#         Lencoder = Encoder(in_c=1,depth=3)
+        
+#     def forward:
+#         pass
 
 
 class ref_guided_inpaintor(BaseNetwork):
@@ -1425,16 +1293,13 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
 #################################################################################################################################################################################
 
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, arc_eval = True):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
         super().__init__()
         from .face_modules.model import Backbone
         arcface = Backbone(50, 0.6, 'ir_se').cuda()
-        
+        arcface.eval()
         arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
         self.arcface = arcface
-        self.arc_eval = arc_eval
-        if self.arc_eval == True:
-            self.arcface.eval()
         
         self.image_size = image_size
         self.latent_dim = latent_dim
@@ -1469,6 +1334,8 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
 
             attn_blocks.append(attn_fn)
 
+            #quantize_fn = PermuteToFrom(VectorQuantize(out_chan, fq_dict_size)) if num_layer in fq_layers else None
+            #quantize_blocks.append(quantize_fn)
             
         self.e_blocks = nn.ModuleList(blocks)
         self.e_attn_blocks = nn.ModuleList(attn_blocks)
@@ -1495,6 +1362,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
 
             self.g_attns.append(attn_fn)
+
             block = GeneratorBlock(
                 latent_dim,
                 in_chan,
@@ -1518,17 +1386,10 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         else:
             input_noise = input_noise
         
-        if self.arc_eval == True:
-            with torch.no_grad():
-                self.arcface.eval()
-                resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
-                zid, X_feats = self.arcface(resize_img)
-                styles = zid.view(batch_size, 1, self.latent_dim)
-        else:
+        with torch.no_grad():
             resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
             zid, X_feats = self.arcface(resize_img)
             styles = zid.view(batch_size, 1, self.latent_dim)
-            
             
         styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
         #styles = self.single_style.expand(batch_size, -1, -1)
@@ -1548,17 +1409,15 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             x, rgb = block(x, rgb, style, input_noise)
         
         return rgb
-
-        
     
 
 class stylegan_ae_facereenactment(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
         super().__init__()
         from .face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se')
+        arcface = Backbone(50, 0.6, 'ir_se').cuda(3)
         arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth',map_location="cuda:%s"%torch.cuda.current_device()), strict=False)
         self.arcface = arcface
         
         self.image_size = image_size
@@ -1747,8 +1606,6 @@ class stylegan_ae_facereenactment2(BaseNetwork):
 
         self.g_blocks = nn.ModuleList([])
         self.g_attns = nn.ModuleList([])
-
-        print(in_chan,out_chan)
         
         for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
             not_first = ind != 0
