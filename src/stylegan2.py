@@ -572,7 +572,35 @@ class Reenactment_Generator(nn.Module):
         init_x = self.initial_block.expand(batch_size, -1, -1, -1)
         output, rgbs = self.decoder(init_x,styles,re_iatts)
         return output, rgbs, iatts
+
+
+class stylegan_base_ae(nn.Module):
+     def __init__(self,latent_dim = 512, image_size = 256 ,num_init_filters=3, network_capacity = 16, 
+                  num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()   
+        self.decoder = Reenactment_Decoder(latent_dim = latent_dim ,
+                                           image_size = image_size , 
+                                           network_capacity = network_capacity, 
+                                           num_layers = num_layers, 
+                                           transparent = transparent, 
+                                           attn_layers = attn_layers, 
+                                           no_const = no_const, 
+                                           fmap_max = fmap_max
+                                          )
     
+        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 4, 4)))
+    
+     def forward(self,x,landmarks):
+        id_latent = self.get_id_latent(x)
+        lm_latent = self.get_lm_latent(landmarks)
+        style = torch.cat((id_latent,lm_latent),dim=1)
+        styles = [style for i in range(self.depth)]
+        
+        batch_size = styles[0].shape[0]
+        init_x = self.initial_block.expand(batch_size, -1, -1, -1)
+        output, rgbs = self.decoder(init_x,styles,noise)
+        return output, rgbs, iatts
+        
 
 class stylegan_base_facereenactment(nn.Module):
     def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
@@ -617,6 +645,7 @@ class stylegan_base_facereenactment(nn.Module):
         styles = [style for i in range(self.depth)]
         output,rgbs,iatts = self.generator(torch.cat((refimages,ref_landmarks),dim=1),styles)
         return output,rgbs,iatts,id_latent,lm_latent
+
     
 
 
