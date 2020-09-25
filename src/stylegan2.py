@@ -470,7 +470,7 @@ class Reenactment_Encoder(nn.Module):
         super().__init__()
         
         if num_layers == None:
-            num_layers = int(log2(image_size) - 1)
+            num_layers = int(log2(image_size) - 3)
             self.num_layers = num_layers
         else:
             self.num_layers = num_layers
@@ -505,7 +505,7 @@ class Reenactment_Decoder(nn.Module):
         super().__init__()
         
         if num_layers == None:
-            num_layers = int(log2(image_size))
+            num_layers = int(log2(image_size)-2)
             self.num_layers = num_layers
         else:
             self.num_layers = num_layers
@@ -563,7 +563,7 @@ class Reenactment_Generator(nn.Module):
                                            fmap_max = fmap_max
                                           )
     
-        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 4, 4)))
+        self.initial_block = nn.Parameter(torch.randn((1, fmap_max, 8, 8)))
     
      def forward(self,x,styles):
         iatts = self.encoder(x)
