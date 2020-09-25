@@ -65,12 +65,21 @@ if __name__ == "__main__":
         copy_dataset(checkpoint_path, s3code_path+"/" + checkpoint_path)
 
     elif mode == "local":
+        
+        ## at school
         suffix = time.strftime("%b%d%H%M")
-        data_path = '/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin'
-        dataset_path = 'datasets/celeba1024-all-%s' % suffix
-        checkpoint_path = 'checkpoints/celeba1024-all-%s' % suffix
-        print("start locally!")
-        os.system("python create_dataset.py --pic {} --dataset {} --checkpoint {}".format(data_path,dataset_path,checkpoint_path))
-        os.system("python train.py --model 2 --checkpoints {}".format(checkpoint_path))
+        data_path = '/data/chengbin/ffhq-dataset/ffhq-lafin/'
+        dataset_path = 'datasets/ffhq'
+        checkpoint_path = 'datasets/ffhq-lmfaceid-in'
+
+        os.system('python train.py --model 2 --checkpoint %s'%checkpoint_path)
+
+        # suffix = time.strftime("%b%d%H%M")
+        # data_path = '/data/chengbin/dataset/celebA/HQ_zip/celeba-hq/celeba-1024-lafin'
+        # dataset_path = 'datasets/celeba1024-all-%s' % suffix
+        # checkpoint_path = 'checkpoints/celeba1024-all-%s' % suffix
+        # print("start locally!")
+        # os.system("python create_dataset.py --pic {} --dataset {} --checkpoint {}".format(data_path,dataset_path,checkpoint_path))
+        # os.system("python train.py --model 2 --checkpoints {}".format(checkpoint_path))
 
 

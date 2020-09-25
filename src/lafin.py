@@ -12,6 +12,7 @@ from cv2 import circle
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
+from torch.utils.data.distributed import DistributedSampler
 
 class Lafin():
     def __init__(self, config):
@@ -27,13 +28,23 @@ class Lafin():
         self.debug = False
         self.model_name = model_name
       
-        self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
         
+        
+        if hasattr(config, 'DISTRIBUTED') and config.DISTRIBUTED == True:
+            print("put inpaint_model to multi-gpus")
+            self.local_rank = config.LocalRank
+            torch.cuda.set_device(self.local_rank)
+            self.inpaint_model = InpaintingModel(config)
+            self.inpaint_model = torch.nn.parallel.DistributedDataParallel(self.inpaint_model.cuda(),device_ids=[self.local_rank],output_device=self.local_rank,find_unused_parameters=True)
+            self.inpaint_model = self.inpaint_model.module      
+        else:
+            self.inpaint_model = InpaintingModel(config)
+      
         if config.MODEL == 3 or config.MODEL == 1:
             self.landmark_model = LandmarkDetectorModel(config).cuda()
 
 
-        self.psnr = PSNR(255.0).to(config.DEVICE)
+        self.psnr = PSNR(255.0).cuda()
         self.cal_mae = nn.L1Loss(reduction='sum')
         self.writer = SummaryWriter(os.path.join(config.PATH, 'logs'))
         
@@ -61,8 +72,9 @@ class Lafin():
             else:
                 self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_INPAINT_LANDMARK_FLIST, config.TEST_MASK_FLIST, root = config.DATA_ROOT,
                                             augment=False, training=False)
-
-
+                
+        print("data root is:", config.DATA_ROOT)
+        
         self.samples_path = os.path.join(config.PATH, 'samples')
         self.results_path = os.path.join(config.PATH, 'results')
 
@@ -97,13 +109,25 @@ class Lafin():
 
 
     def train(self):
-        train_loader = DataLoader(
-            dataset=self.train_dataset,
-            batch_size=self.config.BATCH_SIZE,
-            num_workers=4,
-            drop_last=True,
-            shuffle=True
-        )
+        if hasattr(self.config, 'DISTRIBUTED') and self.config.DISTRIBUTED == True:
+            self.local_rank = self.config.LocalRank
+            train_sampler = DistributedSampler(self.train_dataset, num_replicas=torch.distributed.get_world_size(),rank=self.local_rank)
+            train_loader = DataLoader(
+                dataset=self.train_dataset,
+                batch_size=self.config.BATCH_SIZE,
+                num_workers=4,
+                drop_last=True,
+                shuffle=False,
+                sampler=train_sampler
+            )
+        else:
+            train_loader = DataLoader(
+                dataset=self.train_dataset,
+                batch_size=self.config.BATCH_SIZE,
+                num_workers=4,
+                drop_last=True,
+                shuffle=True
+            )
 
         epoch = 0
         keep_training = True
@@ -369,7 +393,7 @@ class Lafin():
                     landmark_map[i, 0, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
 
                 outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images, landmark_map, masks)
-                outputs_merged = (outputs * masks) + (images * (1 - masks))
+                outputs_merged = outputs
 
                 # metrics
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
@@ -601,9 +625,13 @@ class Lafin():
             
             if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":
                 ref_landmarks,ref_images,rgb,input_noise,style,is_same = outputs
-            elif self.config.INPAINTOR == "stylegan_base_facereenactment":
+            elif self.config.INPAINTOR == "stylegan_base_facereenactment" or self.config.INPAINTOR == "stylegan_base_faceswap":
                 images,landmarks,ref_images,ref_landmarks,output,rgbs,iatts,id_latent,lm_latent,is_same = outputs
                 rgb = output
+            elif self.config.INPAINTOR == "stylegan_base_faceae":
+                images,landmarks,output,rgbs,iatts,id_latent,lm_latent = outputs
+                rgb = output
+                ref_images = images
             else:
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
                 grid = torchvision.utils.make_grid(outputs_merged)
@@ -627,7 +655,8 @@ class Lafin():
             )
         elif model == 2:
             if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or \
-                self.config.INPAINTOR == "faceshifter_reenactment2" or self.config.INPAINTOR == "stylegan_base_facereenactment":
+                self.config.INPAINTOR == "faceshifter_reenactment2" or self.config.INPAINTOR == "stylegan_base_facereenactment" or \
+                self.config.INPAINTOR == "stylegan_base_faceswap" or self.config.INPAINTOR == "stylegan_base_faceae":
                 images = stitch_images(
                     self.postprocess(images),
                     self.postprocess(ref_images),
