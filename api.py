@@ -148,7 +148,7 @@ class inpainting_api():
 
         self.INPUT_SIZE = config.INPUT_SIZE
         
-        data = torch.load(weight_path)
+        data = torch.load(weight_path,map_location=lambda storage, loc: storage.cuda(0))
         generator.load_state_dict(data["generator"])
         generator.eval()
         self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)

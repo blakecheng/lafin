@@ -85,10 +85,10 @@ if __name__ == "__main__":
             {
                 "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
                 "code_path":"/cache/user-job-dir/code",
-                "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin/",
+                "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin",
                 "dataset_path": "datasets/celebahqr",
-                "config_path": "checkpoints/celebahq-ae-lmfaceidin-256-512-latent/config.yml",
-                "checkpoint_name": "celebahq_ae_512",
+                "config_path": "checkpoints/celebahq_facelmidin_7layers_cap16/config.yml",
+                "checkpoint_name": "celebahq_facelmidin_7layers_cap16",
             },
     }
     
@@ -104,13 +104,13 @@ if __name__ == "__main__":
         code_path = path_dict[path_cfg]["code_path"]
         
 
-        s3data_path = os.path.join(path_dict[path_cfg]["code_path"],"celebahq_lafin_data")
-        data_path = path_dict[path_cfg]["data_path"]
+        s3data_path = path_dict[path_cfg]["s3data_path"]
+        data_path = os.path.join(path_dict[path_cfg]["code_path"],"celeba-1024-lafin")
 
         suffix = time.strftime("%b%d%H%M")
         dataset_path = path_dict[path_cfg]["dataset_path"]
         
-        s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remotecheckpoints",path_dict[path_cfg]["checkpoint_name"]))
+        s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remote_checkpoints",path_dict[path_cfg]["checkpoint_name"]))
         
         #######################################################
         checkpoint_path = "remote_checkpoints/%s-%s"%(path_dict[path_cfg]["checkpoint_name"],suffix)
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
         os.system("python -m torch.distributed.launch --nproc_per_node=8 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
         #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
-        copy_dataset(checkpoint_path, s3savepath)
+        
 
 
 

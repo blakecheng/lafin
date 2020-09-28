@@ -1,12 +1,32 @@
 import os
-import argparse
+import sys
 
+# parser = argparse.ArgumentParser()
+# parser.add_argument('--path', '--checkpoints', type=str, default='./checkpoints', help='model checkpoints path (default: ./checkpoints)')
+# parser.add_argument('--model', type=int, choices=[1, 2, 3], help='1: landmark prediction model, 2: inpaint model, 3: joint model')
+# parser.add_argument('--data_path', type=str, help='path to data')
+# args = parser.parse_args()
+
+
+   
 ## 传code文件夹
 ## 传某个文件
-os.system("python3 uploader_yundao.py \
---local_folder_absolute_path=/home/cb/project/lafin/code \
---app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
---vendor=HEC \
---region=cn-north-1 \
---bucket_name=bucket-8613 \
---bucket_path=chengbin/project/MA-lafin-07-24-17-55")
+
+if len(sys.argv)>1:
+    print( sys.argv)
+    source = sys.argv[1]
+    os.system("python3 uploader_yundao.py \
+    --local_folder_absolute_path=/home/cb/project/lafin/code/%s \
+    --app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
+    --vendor=HEC \
+    --region=cn-north-1 \
+    --bucket_name=bucket-8613 \
+    --bucket_path=chengbin/project/MA-lafin-07-24-17-55/code"%(source))
+else:
+    os.system("python3 uploader_yundao.py \
+    --local_folder_absolute_path=/home/cb/project/lafin/code \
+    --app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
+    --vendor=HEC \
+    --region=cn-north-1 \
+    --bucket_name=bucket-8613 \
+    --bucket_path=chengbin/project/MA-lafin-07-24-17-55")

@@ -118,7 +118,7 @@ class Lafin():
                 num_workers=4,
                 drop_last=True,
                 shuffle=False,
-                sampler=train_sampler
+                sampler=train_sampler,
             )
         else:
             train_loader = DataLoader(
@@ -126,7 +126,7 @@ class Lafin():
                 batch_size=self.config.BATCH_SIZE,
                 num_workers=4,
                 drop_last=True,
-                shuffle=True
+                shuffle=True,
             )
 
         epoch = 0
@@ -214,7 +214,7 @@ class Lafin():
                         landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
                     
                     outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks)
-                    outputs_merged = (outputs * masks) + (images * (1-masks))
+                    outputs_merged = outputs
 
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                     mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
@@ -235,6 +235,14 @@ class Lafin():
                     ("iter", iteration),
                 ] + logs
 
+                self.writer.add_scalar("train/gloss",gen_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train/dloss",dis_loss.cpu().item(),iteration)
+                self.writer.add_scalar("train/psnr",psnr.item(),iteration)
+                self.writer.add_scalar("train/mae",mae.item(),iteration)
+                
+                
+                grid = torchvision.utils.make_grid(outputs_merged[:2])
+                self.writer.add_image('sample_images', grid, iteration)
                 
                 progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
                 
@@ -327,7 +335,9 @@ class Lafin():
                 self.writer.add_scalar("train_refine/dloss",dis_loss.cpu().item(),iteration)
                 self.writer.add_scalar("train_refine/psnr",psnr.item(),iteration)
                 self.writer.add_scalar("train_refine/mae",mae.item(),iteration)
-                
+
+                self.writer.add_image('sample_images', images, iteration)
+
                 progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
 
                 # log model at checkpoints
@@ -634,8 +644,8 @@ class Lafin():
                 ref_images = images
             else:
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
-                grid = torchvision.utils.make_grid(outputs_merged)
-                self.writer.add_image('sample_images', grid, iteration)
+
+           
             
         if it is not None:
             iteration = it
@@ -671,7 +681,7 @@ class Lafin():
                     self.postprocess(outputs_merged),
                     img_per_row=image_per_row
                 )
-
+            
 
 
         path = os.path.join(self.samples_path, self.model_name)

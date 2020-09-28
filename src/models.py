@@ -104,6 +104,7 @@ class InpaintingModel(BaseModel):
             image_size = config.INPUT_SIZE
             latent_dim = config.LATENT
             fmap_max =  config.FMAP_MAX
+            print(image_size,fmap_max,latent_dim)
             generator = stylegan_base_faceae(image_size=image_size, fmap_max= fmap_max,latent_dim= latent_dim)
         elif self.inpaint_type == "stylegan_base_faceswap":
             print("#####################")
@@ -168,7 +169,8 @@ class InpaintingModel(BaseModel):
             latent_dim = config.LATENT
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
-            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = True)
+            arc_eval = config.ARC_EVAL
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = arc_eval)
         elif self.inpaint_type == "stylegan2_unet": 
             print("#####################")
             print("USE stylegan generator, unet!")
