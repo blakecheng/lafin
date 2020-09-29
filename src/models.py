@@ -283,6 +283,70 @@ class InpaintingModel(BaseModel):
         if use_apex == True:
             discriminator, dis_optimizer = amp.initialize(discriminator, self.dis_optimizer, opt_level="O1")
 
+        # def get_loss1(self,images, landmarks, masks,outputs):
+    #     gen_loss = 0
+    #     dis_loss = 0
+
+
+    #     # discriminator loss
+    #     dis_input_real = images
+    #     dis_input_fake = outputs.detach()
+    #     if self.is_local == True:
+    #         dis_real, _ = self.discriminator(torch.cat((dis_input_real* masks, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+    #         dis_fake, _ = self.discriminator(torch.cat((dis_input_fake* masks, landmarks), dim=1))  
+    #     else:
+    #         dis_real, _ = self.discriminator(torch.cat((dis_input_real, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+    #         dis_fake, _ = self.discriminator(torch.cat((dis_input_fake, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+    #     dis_real_loss = self.adversarial_loss(dis_real, True, True)
+    #     dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+    #     dis_loss += (dis_real_loss + dis_fake_loss) / 2
+
+
+    #     # generator adversarial loss
+    #     gen_input_fake = outputs
+    #     if self.is_local == True:
+    #         gen_fake, _ = self.discriminator(torch.cat((gen_input_fake* masks, landmarks), dim=1))
+    #     else:
+    #         gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
+    #     gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+    #     gen_loss += gen_gan_loss
+
+    #     # generator l1 loss
+    #     if self.is_local == True:
+    #         gen_l1_loss = self.l1_loss(outputs* masks, images* masks) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
+    #     else:
+    #         gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
+    #     gen_loss += gen_l1_loss
+
+
+    #     # generator perceptual loss
+    #     gen_content_loss = self.perceptual_loss(outputs, images)
+    #     gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+    #     gen_loss += gen_content_loss
+
+
+    #     # generator style loss
+    #     gen_style_loss = self.style_loss(outputs * masks, images * masks)
+    #     gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+    #     gen_loss += gen_style_loss
+
+    #     #generator tv loss
+    #     tv_loss = self.tv_loss(outputs*masks+images*(1-masks))
+    #     gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
+
+    #     # create logs
+    #     logs = [
+    #         ("gLoss",gen_loss.item()),
+    #         ("ggan_l",gen_gan_loss.item()),
+    #         ("gl1_l",gen_l1_loss.item()),
+    #         ("gcontent_l",gen_content_loss.item()),
+    #         ("gstyle_l",gen_style_loss.item()),
+    #         ("gtv_l",tv_loss.item()),
+    #         ("dLoss",dis_loss.item())
+    #     ]
+
+    #     return outputs, gen_loss, dis_loss, logs
+
     def get_loss1(self,images, landmarks, masks,outputs):
         gen_loss = 0
         dis_loss = 0
@@ -304,18 +368,13 @@ class InpaintingModel(BaseModel):
 
         # generator adversarial loss
         gen_input_fake = outputs
-        if self.is_local == True:
-            gen_fake, _ = self.discriminator(torch.cat((gen_input_fake* masks, landmarks), dim=1))
-        else:
-            gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                   # in: [rgb(3)]
+        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))
         gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
         gen_loss += gen_gan_loss
 
         # generator l1 loss
-        if self.is_local == True:
-            gen_l1_loss = self.l1_loss(outputs* masks, images* masks) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
-        else:
-            gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
+  
+        gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
         gen_loss += gen_l1_loss
 
 
@@ -326,17 +385,22 @@ class InpaintingModel(BaseModel):
 
 
         # generator style loss
-        gen_style_loss = self.style_loss(outputs * masks, images * masks)
+        gen_style_loss = self.style_loss(outputs, images )
         gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
         gen_loss += gen_style_loss
 
         #generator tv loss
-        tv_loss = self.tv_loss(outputs*masks+images*(1-masks))
+        tv_loss = self.tv_loss(outputs)
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
         # create logs
         logs = [
             ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gl1_l",gen_l1_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gstyle_l",gen_style_loss.item()),
+            ("gtv_l",tv_loss.item()),
             ("dLoss",dis_loss.item())
         ]
 
@@ -808,7 +872,6 @@ class InpaintingModel(BaseModel):
             Y_id = self.generator.get_id_latent(outputs)
             L_id = self.config.ID_LOSS_WEIGHT* (1 - torch.cosine_similarity(id_latent, Y_id, dim=1)).mean() 
         gen_loss += L_id
-        
         
         # landmark_loss
         gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(images,outputs) 
