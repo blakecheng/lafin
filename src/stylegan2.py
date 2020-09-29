@@ -417,40 +417,31 @@ class Reenactment_DecoderBlock(nn.Module):
         self.conv2 = Conv2DMod(filters, filters, 3)
 
         self.activation = leaky_relu()
+
         self.to_rgb = RGBBlock(latent_dim, filters, upsample_rgb, rgba)
+        self.upsample_rgb = upsample_rgb
         
         self.add_trans = add_trans
-        if add_trans == True:
-            self.conv_block1 = self.conv_block = nn.Sequential(
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(
-                    filters, filters, kernel_size=3, stride=1, padding=1
+        
+        self.conv_block1 = nn.Sequential(
+            nn.Conv2d(
+                filters, 1 , kernel_size=1, stride=1,bias=True
+            ),
+            nn.Conv2d(
+                1, filters, kernel_size=1, stride=1,bias=True
                 ),
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(filters, filters, kernel_size=3, padding=1),
-            )
-            
-            self.conv_block2 = self.conv_block = nn.Sequential(
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(
-                    filters, filters, kernel_size=3, stride=1, padding=1
+        )
+        self.conv_block2 = nn.Sequential(
+            nn.Conv2d(
+                filters, 1 , kernel_size=1, stride=1,bias=True
+            ),
+            nn.Conv2d(
+                1, filters, kernel_size=1, stride=1,bias=True
                 ),
-                nn.BatchNorm2d(filters),
-                nn.ReLU(),
-                nn.Conv2d(filters, filters, kernel_size=3, padding=1),
-            )
+        )
+        
+        
 
-    ## iatt:
-    ## (512,4,4)
-    ## (512,8,8)
-    ## (256, 16, 16)
-    ## (128, 32, 32)
-    ## (64, 64, 64)
-    ## (32, 128, 128)
-    ## (16, 256, 256)
     def forward(self, x, prev_rgb, istyle, iatt):
         if self.upsample is not None:
             x = self.upsample(x)
@@ -459,19 +450,13 @@ class Reenactment_DecoderBlock(nn.Module):
         
         x = self.conv1(x, style1)
         
-        if self.add_trans == True:
-            x = self.activation(x + self.conv_block1(iatt))
-        else:
-            x = self.activation(x + iatt)
-    
+        x = self.activation(x + self.conv_block1(iatt))
+        
         style2 = self.to_style2(istyle)
         
         x = self.conv2(x, style2)
         
-        if self.add_trans == True:
-            x = self.activation(x + self.conv_block2(iatt))
-        else:
-            x = self.activation(x + iatt)
+        x = self.activation(x + self.conv_block2(iatt))
 
         rgb = self.to_rgb(x, prev_rgb, istyle)
         return x, rgb
@@ -556,13 +541,13 @@ class Reenactment_Decoder(nn.Module):
         blocks = []
         for ind, (in_chan, out_chan) in enumerate(chan_in_out):
             not_first = ind != 0
-            not_last = ind != (self.num_layers - 2)
+            not_last = ind != (self.num_layers - 1)
             block = Reenactment_DecoderBlock(
                 latent_dim,
                 in_chan, 
                 out_chan, 
                 upsample = True,
-                upsample_rgb = not_last,
+                upsample_rgb = True,
                 rgba = transparent,
                 add_trans = add_trans)
             blocks.append(block)
@@ -608,6 +593,39 @@ class Reenactment_Generator(nn.Module):
         init_x = self.initial_block.expand(batch_size, -1, -1, -1)
         output, rgbs = self.decoder(init_x,styles,re_iatts)
         return output, rgbs, iatts
+
+class Lm_Encoder(nn.Module):
+    def __init__(self, image_size = 256 ,num_init_filters=3, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], no_const = False, fmap_max = 512):
+        super().__init__()
+        
+        if num_layers == None:
+            num_layers = int(log2(image_size) - 3)
+            self.num_layers = num_layers
+        else:
+            self.num_layers = num_layers
+         
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(num_layers)]
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters)) 
+        self.filters = filters
+        print("LM encoder:",filters)
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            block = Reenactment_EncoderBlock(in_chan, out_chan, True)
+            blocks.append(block)
+        
+        self.e_blocks = torch.nn.ModuleList(blocks)
+        
+    def forward(self, x):
+        iatts = []
+        for block in self.e_blocks:
+            x = block(x)
+        return x
+
+        
 
     
 class stylegan_base_faceae(nn.Module):
@@ -659,8 +677,14 @@ class stylegan_base_faceae(nn.Module):
             
             
         self.depth = int(log2(image_size))-2
-        from src.oneshot_facereenactment import Normal_Encoder
-        self.landmark_encoder = Normal_Encoder(1,3)
+        self.landmark_encoder = Reenactment_Encoder(image_size = image_size ,
+                                           num_init_filters=1, 
+                                           network_capacity = network_capacity,
+                                           num_layers = num_layers, 
+                                           transparent = transparent, 
+                                           attn_layers = attn_layers, 
+                                           no_const = no_const, 
+                                           fmap_max = fmap_max)
         
     def get_id_latent(self,Y):
         batch_size = Y.shape[0]
@@ -668,7 +692,7 @@ class stylegan_base_faceae(nn.Module):
             self.arcface.eval()
             resize_img = F.interpolate(Y, [112, 112], mode='bilinear', align_corners=True)
             zid, X_feats = self.arcface(resize_img)
-            id_latent = zid.view(batch_size, int(self.latent_dim/2))
+            id_latent = zid.view(batch_size, self.latent_dim)
         return id_latent
                                  
     def get_lm_latent(self,lm):
@@ -681,7 +705,7 @@ class stylegan_base_faceae(nn.Module):
         batch_size = x.shape[0]
         id_latent = self.get_id_latent(x)
         lm_latent = self.get_lm_latent(landmarks)
-        style = torch.cat((id_latent,lm_latent),dim=1)
+        style = id_latent
         styles = [style for i in range(self.depth)]
         
         if source_img is not None:
@@ -693,12 +717,13 @@ class stylegan_base_faceae(nn.Module):
         else:
             nosie_list = []
             for i in range(len(self.filters)-1,-1,-1):
-                nosie_list.append(torch.randn((batch_size,self.filters[i] , 2**(i+3), 2**(i+3))).cuda())
+                nosie_list.append(torch.rand((batch_size,self.filters[i] , 2**(i+2), 2**(i+2))).cuda())
                 iatts = nosie_list
         
         re_iatts = iatts[::-1]
-        
-        output, rgbs = self.decoder(re_iatts[0],styles,re_iatts[1:])
+#         print(lm_latent[-1].shape,styles[0].shape,re_iatts[0].shape)
+#         print(len(styles),len(re_iatts[1:]),len(self.decoder.d_blocks))
+        output, rgbs = self.decoder(lm_latent[-1],styles,re_iatts[1:])
         return output,rgbs,iatts,id_latent,lm_latent
     
 
@@ -746,6 +771,7 @@ class stylegan_base_facereenactment(nn.Module):
         output,rgbs,iatts = self.generator(torch.cat((refimages,ref_landmarks),dim=1),styles)
         return output,rgbs,iatts,id_latent,lm_latent
 
+
 class stylegan_base_faceswap(nn.Module):
     def __init__(self,image_size=256, fmap_max= 512,latent_dim= 1024):
         super().__init__()
@@ -786,7 +812,7 @@ class stylegan_base_faceswap(nn.Module):
         id_latent = self.get_id_latent(refimages)
         lm_latent = self.get_lm_latent(landmarks)
         style = torch.cat((id_latent,lm_latent),dim=1)
-        styles = [style for i in range(self.depth)]
+        styles = [style for i in range(self.depth-1)]
         output,rgbs,iatts = self.generator(torch.cat((images,landmarks),dim=1),styles)
         return output,rgbs,iatts,id_latent,lm_latent
     
@@ -1315,7 +1341,7 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
  
 
 class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters = 1):
         super().__init__()
         
         
@@ -1328,7 +1354,7 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 1
+        
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         
@@ -1425,7 +1451,7 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
 #################################################################################################################################################################################
 
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, arc_eval = True):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
         super().__init__()
         from .face_modules.model import Backbone
         arcface = Backbone(50, 0.6, 'ir_se').cuda()
@@ -1446,7 +1472,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 1
+        
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         

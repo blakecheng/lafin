@@ -97,13 +97,25 @@ class InpaintingModel(BaseModel):
         if hasattr(config, 'INPAINTOR'):
             self.inpaint_type = config.INPAINTOR
 
-        if self.inpaint_type == "stylegan_base_faceae":
+        if self.inpaint_type == "Inpainting_for_face_swap":
+            print("#####################")
+            print("USE stylegan generator, AE landmark!")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            num_layers = config.NUM_LAYERS
+            network_capacity = config.NETWORK_CAPACITY
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size, \
+                latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
+                num_init_filters = 4)
+        elif self.inpaint_type == "stylegan_base_faceae":
             print("#####################")
             print("USE stylegan_base_faceae generator!")
             print("#####################\n")
             image_size = config.INPUT_SIZE
             latent_dim = config.LATENT
             fmap_max =  config.FMAP_MAX
+            print(image_size,fmap_max,latent_dim)
             generator = stylegan_base_faceae(image_size=image_size, fmap_max= fmap_max,latent_dim= latent_dim)
         elif self.inpaint_type == "stylegan_base_faceswap":
             print("#####################")
@@ -168,7 +180,8 @@ class InpaintingModel(BaseModel):
             latent_dim = config.LATENT
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
-            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = True)
+            arc_eval = config.ARC_EVAL
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = arc_eval)
         elif self.inpaint_type == "stylegan2_unet": 
             print("#####################")
             print("USE stylegan generator, unet!")
@@ -926,7 +939,12 @@ class InpaintingModel(BaseModel):
         
 
     def forward(self, images, landmarks, masks):
-        if self.inpaint_type == "stylegan_base_faceae":
+        if self.inpaint_type == "Inpainting_for_face_swap":
+            batch_size = images.shape[0]
+            images_masked = (images * (1 - masks).float()) + masks
+            inputs = torch.cat((images_masked, landmarks), dim=1)
+            outputs = self.generator(inputs,images)
+        elif self.inpaint_type == "stylegan_base_faceae":
             batch_size = images.shape[0]
             output,rgbs,iatts,id_latent,lm_latent = self.generator(images,landmarks)
             return images,landmarks,output,rgbs,iatts,id_latent,lm_latent 
