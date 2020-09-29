@@ -1341,7 +1341,7 @@ class stylegan_L2I_Generator_AE(BaseNetwork):
  
 
 class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters = 1):
         super().__init__()
         
         
@@ -1354,7 +1354,7 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 1
+        
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         
@@ -1451,7 +1451,7 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
 #################################################################################################################################################################################
 
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, arc_eval = True):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
         super().__init__()
         from .face_modules.model import Backbone
         arcface = Backbone(50, 0.6, 'ir_se').cuda()
@@ -1472,7 +1472,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         
         ## stylegan e
         
-        num_init_filters = 1
+        
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         

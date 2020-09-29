@@ -97,7 +97,18 @@ class InpaintingModel(BaseModel):
         if hasattr(config, 'INPAINTOR'):
             self.inpaint_type = config.INPAINTOR
 
-        if self.inpaint_type == "stylegan_base_faceae":
+        if self.inpaint_type == "Inpainting_for_face_swap":
+            print("#####################")
+            print("USE stylegan generator, AE landmark!")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            num_layers = config.NUM_LAYERS
+            network_capacity = config.NETWORK_CAPACITY
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size, \
+                latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
+                num_init_filters = 4)
+        elif self.inpaint_type == "stylegan_base_faceae":
             print("#####################")
             print("USE stylegan_base_faceae generator!")
             print("#####################\n")
@@ -865,7 +876,12 @@ class InpaintingModel(BaseModel):
         
 
     def forward(self, images, landmarks, masks):
-        if self.inpaint_type == "stylegan_base_faceae":
+        if self.inpaint_type == "Inpainting_for_face_swap":
+            batch_size = images.shape[0]
+            images_masked = (images * (1 - masks).float()) + masks
+            inputs = torch.cat((images_masked, landmarks), dim=1)
+            outputs = self.generator(inputs,images)
+        elif self.inpaint_type == "stylegan_base_faceae":
             batch_size = images.shape[0]
             output,rgbs,iatts,id_latent,lm_latent = self.generator(images,landmarks)
             return images,landmarks,output,rgbs,iatts,id_latent,lm_latent 
