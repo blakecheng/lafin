@@ -27,7 +27,7 @@ from .utils import create_mask
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True):
+    def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True, mask_type = "base"):
         super(Dataset, self).__init__()
         self.config = config
         self.augment = augment
@@ -40,7 +40,7 @@ class Dataset(torch.utils.data.Dataset):
         print("data root is ", root)
         if root is not None:
             self.data = [os.path.join(root,"images",i) for i in self.data]
-            self.mask_data = [os.path.join(root,"masks",i) for i in self.mask_data]
+            self.mask_data = [os.path.join(root,"masks_face" if mask_type=="face" else "masks",i) for i in self.mask_data]
             self.landmark_data = [os.path.join(root,"landmarks",i) for i in self.landmark_data]
         
 

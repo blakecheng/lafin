@@ -707,13 +707,14 @@ class stylegan_base_faceae(nn.Module):
         lm_latent = self.get_lm_latent(landmarks)
         style = id_latent
         styles = [style for i in range(self.depth)]
+
+        if self.fit_noise == True:
+            iatts = [noise.expand(batch_size,-1,-1,-1) for noise in self.noise_list]
         
-        if source_img is not None:
+        elif source_img is not None:
             iatts = self.encoder(source_img)
         elif (source_img is None) and (noise is not None):
             iatts = noise
-        elif self.fit_noise == True:
-            iatts = [noise.expand(batch_size,-1,-1,-1) for noise in self.noise_list]
         else:
             nosie_list = []
             for i in range(len(self.filters)-1,-1,-1):
