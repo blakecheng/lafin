@@ -87,9 +87,36 @@ if __name__ == "__main__":
                 "code_path":"/cache/user-job-dir/code",
                 "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin",
                 "dataset_path": "datasets/celebahqr",
-                "config_path": "checkpoints/celebahq_facelmidin_7layers_cap16/config.yml",
-                "checkpoint_name": "celebahq_facelmidin_7layers_cap16",
+                "config_path": "checkpoints/celebahq_styleganbaseae_new/config.yml",
+                "checkpoint_name": "celebahq_styleganbaseae_new",
             },
+        "8613_ffhq":
+            {
+                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/FFHQ_faceswap/config.yml",
+                "checkpoint_name": "FFHQ_faceswap",
+            },
+        "8613_ffhq_deep":
+            {
+                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/FFHQ_faceswap_deep/config.yml",
+                "checkpoint_name": "FFHQ_faceswap_deep",
+            },
+        "2026_face_swap":
+            {
+                "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/FFHQ_faceswap/config.yml",
+                "checkpoint_name": "FFHQ_faceswap_inpainting",
+            }
     }
     
     
@@ -98,7 +125,7 @@ if __name__ == "__main__":
         import moxing as mox
         import os
 
-        path_cfg = "8613"
+        path_cfg = "2026_face_swap"
         
         s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
         code_path = path_dict[path_cfg]["code_path"]
@@ -146,7 +173,7 @@ if __name__ == "__main__":
         ## 另一些情况
         os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
-        os.system("python -m torch.distributed.launch --nproc_per_node=8 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
+        os.system("python -m torch.distributed.launch --nproc_per_node=1 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
         #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
         
 

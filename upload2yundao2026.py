@@ -19,8 +19,8 @@ if len(sys.argv)==2:
     --local_folder_absolute_path=/home/cb/project/lafin/code/%s \
     --app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
     --vendor=HEC \
-    --region=cn-north-1 \
-    --bucket_name=bucket-8613 \
+    --region=cn-east-3 \
+    --bucket_name=bucket-2026 \
     --bucket_path=chengbin/project/MA-lafin-07-24-17-55/code"%(source))
 elif len(sys.argv)==3:
     print(sys.argv)
@@ -30,14 +30,14 @@ elif len(sys.argv)==3:
     --local_folder_absolute_path=%s \
     --app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
     --vendor=HEC \
-    --region=cn-north-1 \
-    --bucket_name=bucket-8613 \
+    --region=cn-east-3 \
+    --bucket_name=bucket-2026 \
     --bucket_path=%s"%(source,target))
 else:
     os.system("python3 uploader_yundao.py \
     --local_folder_absolute_path=/home/cb/project/lafin/code \
     --app_token=63dc27e2-740f-46a5-b58b-1c742aa98d7c \
     --vendor=HEC \
-    --region=cn-north-1 \
-    --bucket_name=bucket-8613 \
+    --region=cn-east-3 \
+    --bucket_name=bucket-2026 \
     --bucket_path=chengbin/project/MA-lafin-07-24-17-55")
