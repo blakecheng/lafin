@@ -70,6 +70,9 @@ class StyleLoss(nn.Module):
 
     def __call__(self, x, y):
         # Compute features
+        x = F.interpolate(x, [256, 256], mode='bilinear', align_corners=True)
+        y = F.interpolate(y, [256, 256], mode='bilinear', align_corners=True)
+  
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
 
         # Compute loss
@@ -257,6 +260,8 @@ class Landmark_loss(nn.Module):
         self.lm_detector.eval()
         
     def forward(self,img_true,img_pred):
+        img_true = F.interpolate(img_true, [256, 256], mode='bilinear', align_corners=True)
+        img_pred = F.interpolate(img_pred, [256, 256], mode='bilinear', align_corners=True)
         landmark_true, landmark_pred = self.lm_detector(img_true),self.lm_detector(img_pred)
         landmark_loss = torch.norm((landmark_true-landmark_pred).reshape(-1,self.points_num*2),2,dim=1,keepdim=True)
         return torch.mean(landmark_loss)
@@ -274,6 +279,7 @@ class IDLoss(nn.Module):
         
     def forward(self,img_true,img_pred):
         with torch.no_grad():
+            self.arcface.eval()
             img_true = F.interpolate(img_true, [112, 112], mode='bilinear', align_corners=True)
             img_pred = F.interpolate(img_pred, [112, 112], mode='bilinear', align_corners=True)
             feature_ture, _ = self.arcface(img_true)

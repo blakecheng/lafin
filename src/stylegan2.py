@@ -425,18 +425,18 @@ class Reenactment_DecoderBlock(nn.Module):
         
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(
-                filters, 1 , kernel_size=1, stride=1,bias=True
+                filters, 1 , kernel_size=1, stride=1
             ),
             nn.Conv2d(
-                1, filters, kernel_size=1, stride=1,bias=True
+                1, filters, kernel_size=1, stride=1
                 ),
         )
         self.conv_block2 = nn.Sequential(
             nn.Conv2d(
-                filters, 1 , kernel_size=1, stride=1,bias=True
+                filters, 1 , kernel_size=1, stride=1
             ),
             nn.Conv2d(
-                1, filters, kernel_size=1, stride=1,bias=True
+                1, filters, kernel_size=1, stride=1
                 ),
         )
         

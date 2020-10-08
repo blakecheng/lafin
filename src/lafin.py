@@ -59,7 +59,7 @@ class Lafin():
                 self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_INPAINT_LANDMARK_FLIST,
                                              config.TRAIN_MASK_FLIST,  root = config.DATA_ROOT, augment=True, training=True)
                 self.val_dataset = Dataset(config, config.VAL_INPAINT_IMAGE_FLIST, config.VAL_INPAINT_LANDMARK_FLIST,
-                                           config.TEST_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
+                                           config.VAL_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
         
         
@@ -411,13 +411,15 @@ class Lafin():
                 logs.append(('psnr', psnr.item()))
                 logs.append(('mae', mae.item()))
 
-            self.writer.add_scalar("eval/gloss",gen_loss.cpu().item(),iteration)
-            self.writer.add_scalar("eval/dloss",dis_loss.cpu().item(),iteration)
-            self.writer.add_scalar("eval/psnr",psnr.item(),iteration)
-            self.writer.add_scalar("eval/mae",mae.item(),iteration)
+
             
             logs = [("it", iteration), ] + logs
             progbar.add(len(images), values=logs)
+        
+        self.writer.add_scalar("eval/gloss",gen_loss.cpu().item(),iteration)
+        self.writer.add_scalar("eval/dloss",dis_loss.cpu().item(),iteration)
+        self.writer.add_scalar("eval/psnr",psnr.item(),iteration)
+        self.writer.add_scalar("eval/mae",mae.item(),iteration)
 
     def test(self):
         model = self.config.MODEL
@@ -472,11 +474,11 @@ class Lafin():
                 inputs = (images * (1 - masks))
                 for i in range(inputs.shape[0]):
                     inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1
-
+                
                 outputs = self.inpaint_model(images, landmark_map, masks)
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
 
-                gtype = "generate"
+                gtype = "inpaint"
                 if gtype=="inpaint":
                     images_joint = stitch_images(
                         self.postprocess(images),
@@ -642,6 +644,9 @@ class Lafin():
                 images,landmarks,output,rgbs,iatts,id_latent,lm_latent = outputs
                 rgb = output
                 ref_images = images
+            elif self.config.INPAINTOR == "MSG_Inpainting_for_face_swap":
+                outputs, multiscales = outputs
+                outputs_merged = (outputs * masks) + (images * (1 - masks))
             else:
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
 

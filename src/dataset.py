@@ -82,6 +82,8 @@ class Dataset(torch.utils.data.Dataset):
         img = imread(self.data[index])
 
         if self.config.MODEL != 3:
+            # print(size,img.shape)
+            # input()
             landmark = self.load_lmk([size, size], index, img.shape)
         else: ## test on stage 3 doesn't need ground truth landmarks
             landmark = np.zeros((68,2))

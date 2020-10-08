@@ -48,7 +48,21 @@ def get_face_landmarks(image, face_detector, shape_predictor):
         return None
     shape = shape_predictor(image, dets[0])
     face_landmarks = np.array([[p.x, p.y] for p in shape.parts()])
-    return face_landmarks    
+    return face_landmarks  
+
+def get_mouth_mask(image_size, face_landmarks):
+    """
+    获取人脸掩模
+    :param image_size: 图片大小
+    :param face_landmarks: 68个特征点
+    :return: image_mask, 掩模图片
+    """
+    mask = np.zeros(image_size, dtype=np.uint8)
+#     points = np.concatenate([face_landmarks[48:54], face_landmarks[26:17:-1]])
+    points = np.concatenate([face_landmarks[48:60]])
+    cv2.fillPoly(img=mask, pts=[points], color=255)
+
+    return mask 
 
 def create_mask(path="datasets/debug/", img_dir = 'datasets/debug/images/',
                 mask_dir='datasets/debug/masks/', 
@@ -123,7 +137,7 @@ if __name__ == "__main__":
     img_dir =  os.path.join(args.pic,"images")
     img_flist = os.path.join(args.pic,'images.flist')
     mask_dir= os.path.join(args.pic,"masks_face")
-    mask_flist = os.path.join(args.pic,"masks_face.flist")
+    mask_flist = os.path.join(args.pic,"masks.flist")
     
     create_mask(args.raw,img_dir,mask_dir,img_flist,mask_flist)
     
