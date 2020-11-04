@@ -1,0 +1,4 @@
+python scripts/fid_score.py -c 1 --path checkpoints/celebahq_lmfaceidin_inpainting_new_loss_bak/results/inpaint_ffhq/result checkpoints/test_data_256
+python scripts/fid_score.py -c 1 --path checkpoints/celebahq_lmfaceidin_inpainting_new_loss_bak2/results/inpaint_ffhq/result checkpoints/test_data_256
+python scripts/fid_score.py -c 1 --path checkpoints/celebahq_lmfaceidin_inpainting_new_loss_bak3/results/inpaint_ffhq/result checkpoints/test_data_256
+python scripts/fid_score.py -c 1 --path checkpoints/celebahq_lmfaceidin_inpainting_new_loss_lafin_dis/results/inpaint_ffhq/result checkpoints/test_data_256
