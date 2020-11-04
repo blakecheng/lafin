@@ -47,7 +47,7 @@ class inpainting_api():
         config_path = os.path.join(checkpoint,"config.yml")
         weight_path = os.path.join(checkpoint,"InpaintingModel_gen.pth")
         config = Config(config_path)
-        torch.cuda.set_device(3)
+        torch.cuda.set_device(2)
 
         self.inpaint_type = "lafin_origin"
         if hasattr(config, 'INPAINTOR'):
@@ -152,7 +152,7 @@ class inpainting_api():
 
         self.INPUT_SIZE = config.INPUT_SIZE
         
-        data = torch.load(weight_path,map_location=lambda storage, loc: storage.cuda(0))
+        data = torch.load(weight_path,map_location=lambda storage, loc: storage.cuda(2))
         generator.load_state_dict(data["generator"])
         generator.eval()
         self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
@@ -164,8 +164,8 @@ class inpainting_api():
         self.generator.load_state_dict(data["generator"])
         
 
-    def gen_result(self,images, landmarks, masks, id_images=None):
-        outputs = self.inpaint_model(images, landmarks, masks,id_images)
+    def gen_result(self,images, landmarks, masks, id_images=None,Interpolation=False,alpha=0):
+        outputs = self.inpaint_model(images, landmarks, masks,id_images,Interpolation=Interpolation,alpha=alpha)
         # if "stylegan2" in self.inpaint_type:
         #     images_masked = (images * (1 - masks).float()) + masks
         #     inputs = torch.cat((images_masked, landmarks), dim=1)
