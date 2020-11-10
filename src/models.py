@@ -259,10 +259,9 @@ class InpaintingModel(BaseModel):
             discriminator = msg_stylegan2_lm_id_D(depth=num_layers)
         elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "lafin":
             discriminator = Discriminator(4)
-        elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "lafin":
+        elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "patch":
             discriminator = patch_dis(in_channels=4)
         else:
-    
             discriminator = style_dis(image_size = config.INPUT_SIZE,transparent=True)
         
 
@@ -467,12 +466,13 @@ class InpaintingModel(BaseModel):
         # discriminator loss
         dis_input_real = images
         dis_input_fake = outputs.detach()
-        # if self.is_local == True:
-        #     dis_real, _ = self.discriminator(torch.cat((dis_input_real* masks, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
-        #     dis_fake, _ = self.discriminator(torch.cat((dis_input_fake* masks, landmarks), dim=1))  
-        # else:
-        dis_real, _ = self.discriminator(torch.cat((dis_input_real, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
-        dis_fake, _ = self.discriminator(torch.cat((dis_input_fake, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+        if self.is_local == True:
+            dis_real, _ = self.discriminator(torch.cat((dis_input_real* masks, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+            dis_fake, _ = self.discriminator(torch.cat((dis_input_fake* masks, landmarks), dim=1))  
+        else:
+            dis_real, _ = self.discriminator(torch.cat((dis_input_real, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+            dis_fake, _ = self.discriminator(torch.cat((dis_input_fake, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+        
         dis_real_loss = self.adversarial_loss(dis_real, True, True)
         dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
         dis_loss += (dis_real_loss + dis_fake_loss) / 2
@@ -480,29 +480,45 @@ class InpaintingModel(BaseModel):
 
         # generator adversarial loss
         gen_input_fake = outputs
-        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))
-        gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        if self.is_local == True:
+            gen_fake, _ = self.discriminator(torch.cat((gen_input_fake* masks, landmarks), dim=1))
+            gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        else:
+            gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))
+            gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+
         gen_loss += gen_gan_loss
 
         # generator l1 loss
-  
-        gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
+        if self.is_local == True:
+            gen_l1_loss = self.l1_loss(outputs* masks, images* masks) * self.config.L1_LOSS_WEIGHT
+        else:
+            gen_l1_loss = self.l1_loss(outputs, images) * self.config.L1_LOSS_WEIGHT
+        
         gen_loss += gen_l1_loss
 
 
         # generator perceptual loss
-        gen_content_loss = self.perceptual_loss(outputs, images)
+        if self.is_local == True:
+            gen_content_loss = self.perceptual_loss(outputs* masks, images* masks)
+        else:
+            gen_content_loss = self.perceptual_loss(outputs, images)
+
         gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
         gen_loss += gen_content_loss
 
 
         # generator style loss
-        gen_style_loss = self.style_loss(outputs, images )
+        if self.is_local == True:
+            gen_style_loss = self.style_loss(outputs* masks, images* masks)
+        else:
+            gen_style_loss = self.style_loss(outputs, images )
         gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
         gen_loss += gen_style_loss
 
         #generator tv loss
-        tv_loss = self.tv_loss(outputs)
+        if self.is_local == True:
+            tv_loss = self.tv_loss(outputs)
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
         # create logs
@@ -1118,14 +1134,14 @@ class InpaintingModel(BaseModel):
         return outputs, gen_loss, dis_loss, logs
         
 
-    def forward(self, images, landmarks, masks, id_images=None):
+    def forward(self, images, landmarks, masks, id_images=None,Interpolation=False,alpha=0):
         if self.inpaint_type == "Inpainting_for_face_swap" or self.inpaint_type == "MSG_Inpainting_for_face_swap":
             batch_size = images.shape[0]
             images_masked = (images * (1 - masks).float()) + masks
             inputs = torch.cat((images_masked, landmarks), dim=1)
             if id_images is None:
                 id_images = images
-            outputs = self.generator(inputs,id_images)
+            outputs = self.generator(inputs,id_images,input_noise=None,Interpolation=Interpolation,alpha=alpha)
         elif self.inpaint_type == "stylegan_base_faceae":
             batch_size = images.shape[0]
             output,rgbs,iatts,id_latent,lm_latent = self.generator(images,landmarks)

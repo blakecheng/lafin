@@ -1534,7 +1534,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
 
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
-    def forward(self, x , ref_image,input_noise=None):
+    def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0):
     
         batch_size = x.shape[0]
         image_size = self.image_size
@@ -1544,18 +1544,29 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             input_noise = image_noise(batch_size, image_size)
         else:
             input_noise = input_noise
+
+        if Interpolation==True:
+            ref_image2 = ref_image[1]
+            ref_image = ref_image[0]
+            
         
         if self.arc_eval == True:
             with torch.no_grad():
                 self.arcface.eval()
                 resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
                 zid, X_feats = self.arcface(resize_img)
-                styles = zid.view(batch_size, 1, self.latent_dim)
         else:
             resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
             zid, X_feats = self.arcface(resize_img)
-            styles = zid.view(batch_size, 1, self.latent_dim)
-            
+        
+        if Interpolation==True:
+            resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
+            zid2, X_feats2 = self.arcface(resize_img2)
+            zid = (1-alpha)*zid + alpha*zid2
+        
+        styles = zid.view(batch_size, 1, self.latent_dim)
+        
+        
             
         styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
         #styles = self.single_style.expand(batch_size, -1, -1)
