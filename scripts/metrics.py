@@ -58,7 +58,7 @@ for fn in sorted(files):
         plt.imshow(img_pred)
         plt.title('Output')
         plt.show()
-
+    # print(img_gt.shape,img_pred.shape)
     psnr.append(compare_psnr(img_gt, img_pred, data_range=1))
     ssim.append(compare_ssim(img_gt, img_pred, data_range=1, win_size=51))
     mae.append(compare_mae(img_gt, img_pred))
@@ -74,9 +74,9 @@ for fn in sorted(files):
 np.savez(args.output_path + '/metrics.npz', psnr=psnr, ssim=ssim, mae=mae, names=names)
 print(
     "PSNR: %.4f" % round(np.mean(psnr), 4),
-    "PSNR Variance: %.4f" % round(np.var(psnr), 4),
+    "PSNR Variance: %.4f" % round(np.std(psnr), 4),
     "SSIM: %.4f" % round(np.mean(ssim), 4),
-    "SSIM Variance: %.4f" % round(np.var(ssim), 4),
+    "SSIM Variance: %.4f" % round(np.std(ssim), 4),
     "MAE: %.4f" % round(np.mean(mae), 4),
-    "MAE Variance: %.4f" % round(np.var(mae), 4)
+    "MAE Variance: %.4f" % round(np.std(mae), 4)
 )
