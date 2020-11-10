@@ -46,7 +46,6 @@ class Dataset(torch.utils.data.Dataset):
 
         self.input_size = config.INPUT_SIZE
         self.mask = config.MASK
-
         # in test mode, there's a one-to-one relationship between mask and image
         # masks are loaded non random
        

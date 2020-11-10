@@ -518,6 +518,8 @@ class InpaintingModel(BaseModel):
 
         #generator tv loss
         if self.is_local == True:
+            tv_loss = self.tv_loss(outputs*masks)
+        else:
             tv_loss = self.tv_loss(outputs)
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 

@@ -76,6 +76,12 @@ def create_config(dataset_path, target_path, data_path,example_path='config.yml'
 #python -m torch.distributed.launch --nproc_per_node=2 train.py --model 2 --checkpoint checkpoints/celebahq_styleganbaseae --is_dist
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path_cfg', default="",type=str)
+    args = parser.parse_args()
+
+
     os.system("pwd ; ls")
     mode = "remote"
     start = time.time()
@@ -116,7 +122,35 @@ if __name__ == "__main__":
                 "dataset_path": "datasets/FFHQr",
                 "config_path": "checkpoints/FFHQ_faceswap/config.yml",
                 "checkpoint_name": "FFHQ_faceswap_inpainting",
-            }
+            },
+        "2026_face_roate":
+            {
+                "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/ffhq_rotate/config.yml",
+                "checkpoint_name": "FFHQ_rotate",
+            },
+        "8613_face_roate":
+            {
+                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/ffhq_rotate_trainable/config.yml",
+                "checkpoint_name": "FFHQ_rotate_trainable",
+            },
+        "333_face_roate":
+            {
+                "s3code_project_path": "s3://bucket-333/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-333/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/ffhq_rotate_trainable/config.yml",
+                "checkpoint_name": "FFHQ_rotate_trainable",
+            },
+        
     }
     
     
@@ -125,7 +159,7 @@ if __name__ == "__main__":
         import moxing as mox
         import os
 
-        path_cfg = "2026_face_swap"
+        path_cfg = args.path_cfg
         
         s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
         code_path = path_dict[path_cfg]["code_path"]
@@ -173,7 +207,7 @@ if __name__ == "__main__":
         ## 另一些情况
         os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
-        os.system("python -m torch.distributed.launch --nproc_per_node=1 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
+        os.system("python -m torch.distributed.launch --nproc_per_node=8 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
         #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
         
 

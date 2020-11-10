@@ -108,6 +108,8 @@ def load_config(mode=None):
 
     if args.data_path is not None:
         config.DATA_ROOT = args.data_path
+    else:
+        config.DATA_ROOT = config.DATA_ROOT
     
     if args.is_dist:
         torch.distributed.init_process_group(backend="nccl")
@@ -137,6 +139,8 @@ def load_config(mode=None):
 
         if args.output is not None:
             config.RESULTS = args.output
+
+        
 
     # eval mode
     elif mode == 3:
