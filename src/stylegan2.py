@@ -1451,6 +1451,146 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
 
 #################################################################################################################################################################################
 
+class stylegan_rotate(BaseNetwork):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
+        super().__init__()
+        from .face_modules.model import Backbone
+        arcface = Backbone(50, 0.6, 'ir_se').cuda()
+        
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arc_eval = arc_eval
+        if self.arc_eval == True:
+            self.arcface.eval()
+        
+        self.image_size = image_size
+        self.latent_dim = latent_dim
+        self.style_depth = style_depth
+        if num_layers == None:
+            self.num_layers = int(log2(image_size) - 1)
+        else:
+            self.num_layers = num_layers
+        
+        ## stylegan e
+        
+        
+        blocks = []
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
+        
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        quantize_blocks = []
+        attn_blocks = []
+
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            is_not_last = ind != (len(chan_in_out) - 1)
+
+            block = DiscriminatorBlock(in_chan, out_chan, downsample = is_not_last)
+            blocks.append(block)
+
+            attn_fn = attn_and_ff(out_chan) if num_layer in attn_layers else None
+
+            attn_blocks.append(attn_fn)
+
+            
+        self.e_blocks = nn.ModuleList(blocks)
+        self.e_attn_blocks = nn.ModuleList(attn_blocks)
+            
+        
+        ### stylegan g
+        
+        filters = [network_capacity * (2 ** (i)) for i in range(self.num_layers)][::-1]
+
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        init_channels = filters[0]
+        filters = [init_channels, *filters]
+        in_out_pairs = zip(filters[:-1], filters[1:])
+
+        self.g_blocks = nn.ModuleList([])
+        self.g_attns = nn.ModuleList([])
+        
+        for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
+            not_first = ind != 0
+            not_last = ind != (self.num_layers - 1)
+            num_layer = self.num_layers - ind
+
+            attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
+
+            self.g_attns.append(attn_fn)
+            block = GeneratorBlock(
+                latent_dim,
+                in_chan,
+                out_chan,
+                upsample = not_first,
+                upsample_rgb = not_last,
+                rgba = transparent
+            )
+            self.g_blocks.append(block)
+
+        # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+        
+    def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0):
+    
+        batch_size = x.shape[0]
+        image_size = self.image_size
+        
+        # style固定，noise不固定
+        if input_noise==None:
+            input_noise = image_noise(batch_size, image_size)
+        else:
+            input_noise = input_noise
+
+        if Interpolation==True:
+            ref_image2 = ref_image[1]
+            ref_image = ref_image[0]
+            
+        
+        if self.arc_eval == True:
+            with torch.no_grad():
+                self.arcface.eval()
+                resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+                zid, X_feats = self.arcface(resize_img)
+        else:
+            resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+            zid, X_feats = self.arcface(resize_img)
+        
+        if Interpolation==True:
+            resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
+            zid2, X_feats2 = self.arcface(resize_img2)
+            zid = (1-alpha)*zid + alpha*zid2
+        
+        styles = zid.view(batch_size, 1, self.latent_dim)
+        
+        
+            
+        styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
+        #styles = self.single_style.expand(batch_size, -1, -1)
+
+        for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
+            x = block(x)
+            
+            if attn_block is not None:
+                x = attn_block(x)
+
+        styles = styles.transpose(0, 1)
+
+        rgb = None
+        for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
+            if attn is not None:
+                x = attn(x)
+            x, rgb = block(x, rgb, style, input_noise)
+        
+        return rgb
+
+
+
+
+
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
         super().__init__()
