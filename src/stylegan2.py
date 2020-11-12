@@ -1451,17 +1451,25 @@ class stylegan_L2I_Generator_AE_landmark_in(BaseNetwork):
 
 #################################################################################################################################################################################
 
+class PixelNorm(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
+
+
 class stylegan_rotate(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = False):
         super().__init__()
         from .face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se').cuda()
-        
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
-        self.arcface = arcface
-        self.arc_eval = arc_eval
-        if self.arc_eval == True:
-            self.arcface.eval()
+        from src.psp_encoder_utils.psp_encoder import IdentityEncoder,EqualLinear
+   
+        # arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        # self.arcface = arcface
+        # self.arc_eval = arc_eval
+        # if self.arc_eval == True:
+        #     self.arcface.eval()
         
         self.image_size = image_size
         self.latent_dim = latent_dim
@@ -1471,9 +1479,24 @@ class stylegan_rotate(BaseNetwork):
         else:
             self.num_layers = num_layers
         
+        self.arcface = IdentityEncoder(num_layers=50,depth=self.num_layers,mode='ir',input_nc=3)
+        self.arc_eval = arc_eval
+        if self.arc_eval == True:
+            self.arcface.eval()
+
+        layers = [PixelNorm()]
+
+        for i in range(style_depth):
+            layers.append(
+                EqualLinear(
+                    latent_dim, latent_dim, lr_mul=0.01, activation='fused_lrelu'
+                )
+            )
+        
+        self.style = nn.Sequential(*layers)
+
+
         ## stylegan e
-        
-        
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
         
@@ -1553,23 +1576,23 @@ class stylegan_rotate(BaseNetwork):
         if self.arc_eval == True:
             with torch.no_grad():
                 self.arcface.eval()
-                resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
-                zid, X_feats = self.arcface(resize_img)
+                #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+                zid = self.arcface(resize_img)
         else:
-            resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
-            zid, X_feats = self.arcface(resize_img)
+            #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+            zid = self.arcface(ref_image)
         
         if Interpolation==True:
-            resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
-            zid2, X_feats2 = self.arcface(resize_img2)
+            #resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
+            zid2= self.arcface(ref_image2)
             zid = (1-alpha)*zid + alpha*zid2
+
+        styles=self.style(zid)
         
-        styles = zid.view(batch_size, 1, self.latent_dim)
+        # styles = zid.view(batch_size, 1, self.latent_dim)
         
-        
-            
-        styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
-        #styles = self.single_style.expand(batch_size, -1, -1)
+        # styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
+        # #styles = self.single_style.expand(batch_size, -1, -1)
 
         for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
             x = block(x)
@@ -1706,8 +1729,6 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         
         styles = zid.view(batch_size, 1, self.latent_dim)
         
-        
-            
         styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
         #styles = self.single_style.expand(batch_size, -1, -1)
 
@@ -1717,13 +1738,16 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
             if attn_block is not None:
                 x = attn_block(x)
 
+            
         styles = styles.transpose(0, 1)
 
         rgb = None
         for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
+            print(style.shape)
             if attn is not None:
                 x = attn(x)
             x, rgb = block(x, rgb, style, input_noise)
+            # print(x.shape)
         
         return rgb
 
