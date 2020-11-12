@@ -9,6 +9,7 @@ from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_lo
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
 from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,stylegan_base_faceae
+from .stylegan2 import stylegan_rotate
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
 from .faceshifter_generator import faceshifter_inpaintor,faceshifter_reenactment,faceshifter_reenactment2
@@ -100,7 +101,23 @@ class InpaintingModel(BaseModel):
         if hasattr(config, 'INPAINTOR'):
             self.inpaint_type = config.INPAINTOR
 
-        if self.inpaint_type == "MSG_Inpainting_for_face_swap":
+        from .augment import AugWrapper
+
+        self.augwrapper = AugWrapper(config.INPUT_SIZE).cuda()
+
+        if self.inpaint_type == "face_rotate":
+            print("#####################")
+            print("Inpainting_for_face_rotate!")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            num_layers = config.NUM_LAYERS
+            network_capacity = config.NETWORK_CAPACITY
+            arc_eval = config.ARC_EVAL
+            generator = stylegan_rotate(image_size=image_size, \
+                latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
+                num_init_filters = 1)
+        elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             print("#####################")
             print("MSG_Inpainting_for_face_swap, USE stylegan generator, AE landmark!")
             print("#####################\n")
@@ -395,12 +412,12 @@ class InpaintingModel(BaseModel):
 
         # discriminator loss
         dis_input_real = images
-        dis_input_fake = outputs.detach()*masks+images*(1-masks)
+        dis_input_fake = outputs.detach()
         # if self.is_local == True:
         #     dis_real, _ = self.discriminator(torch.cat((dis_input_real* masks, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
         #     dis_fake, _ = self.discriminator(torch.cat((dis_input_fake* masks, landmarks), dim=1))  
         # else:
-        dis_real, _ = self.discriminator(torch.cat((dis_input_real, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+        dis_real, _ = self.discriminator(torch.cat((dis_input_real* masks, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
         dis_fake, _ = self.discriminator(torch.cat((dis_input_fake, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
         dis_real_loss = self.adversarial_loss(dis_real, True, True)
         dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
@@ -408,39 +425,39 @@ class InpaintingModel(BaseModel):
 
 
         # generator adversarial loss
-        gen_input_fake = outputs*masks+images*(1-masks)
+        gen_input_fake = outputs
         gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))
         gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
         gen_loss += gen_gan_loss
 
         # generator l1 loss
   
-        gen_l1_loss = self.l1_loss(outputs*masks, images*masks) * self.config.L1_LOSS_WEIGHT
+        gen_l1_loss = self.l1_loss(outputs, images*masks) * self.config.L1_LOSS_WEIGHT
         gen_loss += gen_l1_loss
 
 
         # generator perceptual loss
-        gen_content_loss = self.perceptual_loss(outputs*masks+images*(1-masks), images)
+        gen_content_loss = self.perceptual_loss(outputs, images*masks)
         gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
         gen_loss += gen_content_loss
 
 
         # generator style loss
-        gen_style_loss = self.style_loss(outputs*masks , images*masks )
+        gen_style_loss = self.style_loss(outputs, images*masks)
         gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
         gen_loss += gen_style_loss
 
         #generator tv loss
-        tv_loss = self.tv_loss(outputs*masks+images*(1-masks))
+        tv_loss = self.tv_loss(outputs)
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
         # zid loss
         
-        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs*masks+images*(1-masks), images)
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks)
         gen_loss += gen_id_loss
         
         # landmark_loss
-        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(outputs*masks+images*(1-masks), images) 
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(outputs, images*masks) 
         gen_loss += gen_landmark_loss
 
         # create logs
@@ -523,6 +540,14 @@ class InpaintingModel(BaseModel):
             tv_loss = self.tv_loss(outputs)
         gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
+        # zid loss
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs*masks, images*masks)
+        gen_loss += gen_id_loss
+        
+        # landmark_loss
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(outputs*masks, images*masks) 
+        gen_loss += gen_landmark_loss
+
         # create logs
         logs = [
             ("gLoss",gen_loss.item()),
@@ -531,6 +556,8 @@ class InpaintingModel(BaseModel):
             ("gcontent_l",gen_content_loss.item()),
             ("gstyle_l",gen_style_loss.item()),
             ("gtv_l",tv_loss.item()),
+            ("gen_id",gen_id_loss.item()),
+            ("gen_lm",gen_landmark_loss.item()),
             ("dLoss",dis_loss.item())
         ]
 
@@ -1143,6 +1170,7 @@ class InpaintingModel(BaseModel):
             inputs = torch.cat((images_masked, landmarks), dim=1)
             if id_images is None:
                 id_images = images
+            id_images = self.augwrapper(id_images)
             outputs = self.generator(inputs,id_images,input_noise=None,Interpolation=Interpolation,alpha=alpha)
         elif self.inpaint_type == "stylegan_base_faceae":
             batch_size = images.shape[0]
@@ -1190,10 +1218,10 @@ class InpaintingModel(BaseModel):
             return ref_landmarks,ref_images,rgb,input_noise,style,is_same
         elif self.inpaint_type == "s2_ae_landmark_in" :
             outputs = self.generator(landmarks)
-        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
+        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in" or self.inpaint_type == "face_rotate":
+            images = self.augwrapper(images)
             outputs = self.generator(landmarks,images)
-        elif self.inpaint_type == "faceshifter" :
-    
+        elif self.inpaint_type == "faceshifter":
             outputs = self.generator(images,landmarks,masks)
         elif self.inpaint_type == "faceshifter_inpaintor_selfref":
             images_masked = (images * (1 - masks).float()) + masks

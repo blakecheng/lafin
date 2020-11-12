@@ -1462,7 +1462,7 @@ class PixelNorm(nn.Module):
 class stylegan_rotate(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = False):
         super().__init__()
-        from .face_modules.model import Backbone
+        # from .face_modules.model import Backbone
         from src.psp_encoder_utils.psp_encoder import IdentityEncoder,EqualLinear
    
         # arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
@@ -1743,7 +1743,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
 
         rgb = None
         for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
-            print(style.shape)
+            #print(style.shape)
             if attn is not None:
                 x = attn(x)
             x, rgb = block(x, rgb, style, input_noise)

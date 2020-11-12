@@ -5,7 +5,7 @@ from torch import nn
 from torch.nn import Linear, Conv2d, BatchNorm2d, PReLU, Sequential, Module
 
 from .helpers import get_blocks, Flatten, bottleneck_IR, bottleneck_IR_SE
-from .op import fused_leaky_relu
+# from .op import fused_leaky_relu
 import math
 import random
 
@@ -337,8 +337,8 @@ class EqualLinear(nn.Module):
     def forward(self, input):
         if self.activation:
             out = F.linear(input, self.weight * self.scale)
-            out = fused_leaky_relu(out, self.bias * self.lr_mul)
-
+            # out = fused_leaky_relu(out, self.bias * self.lr_mul)
+            out = F.leaky_relu(out)
         else:
             out = F.linear(
                 input, self.weight * self.scale, bias=self.bias * self.lr_mul

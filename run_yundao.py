@@ -76,10 +76,10 @@ def create_config(dataset_path, target_path, data_path,example_path='config.yml'
 #python -m torch.distributed.launch --nproc_per_node=2 train.py --model 2 --checkpoint checkpoints/celebahq_styleganbaseae --is_dist
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--path_cfg', default="",type=str)
-    args = parser.parse_args()
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--path_cfg', default="",type=str)
+    # args = parser.parse_args()
 
 
     os.system("pwd ; ls")
@@ -132,6 +132,15 @@ if __name__ == "__main__":
                 "config_path": "checkpoints/ffhq_rotate/config.yml",
                 "checkpoint_name": "FFHQ_rotate",
             },
+        "2026_face_roate_trainable":
+            {
+                "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
+                "code_path":"/cache/user-job-dir/code",
+                "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
+                "dataset_path": "datasets/FFHQr",
+                "config_path": "checkpoints/ffhq_rotate_trainable/config.yml",
+                "checkpoint_name": "FFHQ_rotate_trainable",
+            },
         "8613_face_roate":
             {
                 "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
@@ -152,62 +161,65 @@ if __name__ == "__main__":
             },
         
     }
+
+    import moxing as mox
+    import os
+
+    path_cfg = "8613_face_roate"
+    gpu_num = 8
+
+    if mode=="developement":
+        path_dict[path_cfg]["code_path"]="/home/ma-user/work/code"
     
+    s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
+    code_path = path_dict[path_cfg]["code_path"]
     
 
-    if mode == "remote":
-        import moxing as mox
-        import os
+    s3data_path = path_dict[path_cfg]["s3data_path"]
+    data_path = os.path.join(path_dict[path_cfg]["code_path"],"celeba-1024-lafin")
 
-        path_cfg = args.path_cfg
-        
-        s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
-        code_path = path_dict[path_cfg]["code_path"]
-        
+    suffix = time.strftime("%b%d%H%M")
+    dataset_path = path_dict[path_cfg]["dataset_path"]
+    
+    s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remote_checkpoints",path_dict[path_cfg]["checkpoint_name"]))
+    
+    #######################################################
+    checkpoint_path = "remote_checkpoints/%s-%s"%(path_dict[path_cfg]["checkpoint_name"],suffix)
+    #######################################################
+    mkdir(checkpoint_path)
 
-        s3data_path = path_dict[path_cfg]["s3data_path"]
-        data_path = os.path.join(path_dict[path_cfg]["code_path"],"celeba-1024-lafin")
+    copy_dataset(s3code_path, code_path)
+    copy_dataset(s3data_path, data_path)
 
-        suffix = time.strftime("%b%d%H%M")
-        dataset_path = path_dict[path_cfg]["dataset_path"]
-        
-        s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remote_checkpoints",path_dict[path_cfg]["checkpoint_name"]))
-        
-        #######################################################
-        checkpoint_path = "remote_checkpoints/%s-%s"%(path_dict[path_cfg]["checkpoint_name"],suffix)
-        #######################################################
-        mkdir(checkpoint_path)
+    sys.path.insert(0, code_path)  # "home/work/user-job-dir/" + leaf folder of src code
+    os.chdir(code_path)
+    os.system("pwd")
 
-        copy_dataset(s3code_path, code_path)
-        copy_dataset(s3data_path, data_path)
+    ######################################################################
+    create_config(dataset_path, checkpoint_path,data_path, path_dict[path_cfg]["config_path"])
+    ######################################################################
 
-        sys.path.insert(0, code_path)  # "home/work/user-job-dir/" + leaf folder of src code
-        os.chdir(code_path)
-        os.system("pwd")
+    t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,s3savepath,))
+    t.start()
 
-        ######################################################################
-        create_config(dataset_path, checkpoint_path,data_path, path_dict[path_cfg]["config_path"])
-        ######################################################################
-
-        t = threading.Thread(target=get_checkpoint, args=(checkpoint_path,s3savepath,))
-        t.start()
-
-        t = threading.Thread(target=show_nvidia)
-        t.start()
+    t = threading.Thread(target=show_nvidia)
+    t.start()
 
 
-        os.system("pwd ; ls")
-        os.system("df -h")
-        # /cache/user-job-dir/code/ffhq-lafin:
-        os.system("pip install -r requirements.txt")
+    os.system("pwd ; ls")
+    os.system("df -h")
+    # /cache/user-job-dir/code/ffhq-lafin:
+    os.system("pip install -r requirements.txt")
 
-        ## 某些情况
-        #os.system("mkdir -p /home/work/.torch/models/")
-        #os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.torch/models/")
-        ## 另一些情况
+    ## 某些情况
+    if mode=="developement":
+        os.system("mkdir -p /home/ma-user/.cache/torch/models/")
+        os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/ma-user/.cache/torch/checkpoints/")
+    ## 另一些情况
+    else:
         os.system("mkdir -p /home/work/.cache/torch/checkpoints/")
         os.system("cp checkpoints/torch/vgg19-dcbb9e9d.pth /home/work/.cache/torch/checkpoints/")
-        os.system("python -m torch.distributed.launch --nproc_per_node=8 train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(checkpoint_path,data_path))
+    os.system("python -m torch.distributed.launch --nproc_per_node=%d train.py --model 2 --checkpoint %s --data_path %s --is_dist"%(gpu_num,checkpoint_path,data_path))
         #os.system("python train.py --model 2 --checkpoints %s --data_path %s "%(checkpoint_path,dataset_path))
         
 

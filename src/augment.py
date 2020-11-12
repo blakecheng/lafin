@@ -30,7 +30,7 @@ def random_rotate(x, theta):
     dtype = x.dtype
     rot_mat = get_rot_mat(theta)[None, ...].type(dtype).repeat(x.shape[0],1,1)
     grid = F.affine_grid(rot_mat, x.size()).type(dtype)
-    x = F.grid_sample(x, grid)
+    x = F.grid_sample(x, grid.cuda())
     return x
         
 
@@ -42,7 +42,7 @@ class AugWrapper(nn.Module):
     def __init__(self, image_size):
         super().__init__()
 
-    def forward(self, images, prob = 0., detach = False, is_flip=False):
+    def forward(self, images, prob = 0.7, detach = False, is_flip=False):
         if random() < prob:
             random_scale = random_float(0.85, 0.95)
             if is_flip:
@@ -54,4 +54,6 @@ class AugWrapper(nn.Module):
             images.detach_()
 
         return images
+    
+
     
