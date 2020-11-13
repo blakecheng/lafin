@@ -4,6 +4,7 @@ import time
 import sys
 import threading
 import yaml
+import moxing as mox
 
 
 def copy_file(obs_path, cache_path):
@@ -72,57 +73,20 @@ def create_config(dataset_path, target_path, data_path,example_path='config.yml'
     print(target_path)
     print("done")
 
-
-#python -m torch.distributed.launch --nproc_per_node=2 train.py --model 2 --checkpoint checkpoints/celebahq_styleganbaseae --is_dist
-
 if __name__ == "__main__":
     # import argparse
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--path_cfg', default="",type=str)
     # args = parser.parse_args()
 
-
     os.system("pwd ; ls")
     mode = "remote"
     start = time.time()
-    
+
+    path_cfg = "2026_face_roate"
+    gpu_num = 4
+
     path_dict = {
-        "8613":
-            {
-                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
-                "code_path":"/cache/user-job-dir/code",
-                "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin",
-                "dataset_path": "datasets/celebahqr",
-                "config_path": "checkpoints/celebahq_styleganbaseae_new/config.yml",
-                "checkpoint_name": "celebahq_styleganbaseae_new",
-            },
-        "8613_ffhq":
-            {
-                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
-                "code_path":"/cache/user-job-dir/code",
-                "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
-                "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/FFHQ_faceswap/config.yml",
-                "checkpoint_name": "FFHQ_faceswap",
-            },
-        "8613_ffhq_deep":
-            {
-                "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
-                "code_path":"/cache/user-job-dir/code",
-                "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
-                "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/FFHQ_faceswap_deep/config.yml",
-                "checkpoint_name": "FFHQ_faceswap_deep",
-            },
-        "2026_face_swap":
-            {
-                "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
-                "code_path":"/cache/user-job-dir/code",
-                "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
-                "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/FFHQ_faceswap/config.yml",
-                "checkpoint_name": "FFHQ_faceswap_inpainting",
-            },
         "2026_face_roate":
             {
                 "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
@@ -158,34 +122,29 @@ if __name__ == "__main__":
                 "dataset_path": "datasets/FFHQr",
                 "config_path": "checkpoints/ffhq_rotate_trainable/config.yml",
                 "checkpoint_name": "FFHQ_rotate_trainable",
-            },
+            }
         
     }
 
-    import moxing as mox
-    import os
 
     # path_cfg = "8613_face_roate"
     # gpu_num = 8
 
-    path_cfg = "2026_face_roate"
-    gpu_num = 4
-
     if mode=="developement":
         path_dict[path_cfg]["code_path"]="/home/ma-user/work/code"
-    
+
     s3code_path = os.path.join(path_dict[path_cfg]["s3code_project_path"],"code")
     code_path = path_dict[path_cfg]["code_path"]
-    
+
 
     s3data_path = path_dict[path_cfg]["s3data_path"]
     data_path = os.path.join(path_dict[path_cfg]["code_path"],"celeba-1024-lafin")
 
     suffix = time.strftime("%b%d%H%M")
     dataset_path = path_dict[path_cfg]["dataset_path"]
-    
+
     s3savepath = os.path.join(path_dict[path_cfg]["s3code_project_path"], "%s/%s"%("remote_checkpoints",path_dict[path_cfg]["checkpoint_name"]))
-    
+
     #######################################################
     checkpoint_path = "remote_checkpoints/%s-%s"%(path_dict[path_cfg]["checkpoint_name"],suffix)
     #######################################################
@@ -227,6 +186,50 @@ if __name__ == "__main__":
         
 
 
+#python -m torch.distributed.launch --nproc_per_node=2 train.py --model 2 --checkpoint checkpoints/celebahq_styleganbaseae --is_dist
+
+
+
+    
+
+
+## bak
+        # "8613":
+        #     {
+        #         "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+        #         "code_path":"/cache/user-job-dir/code",
+        #         "s3data_path":"s3://bucket-8613/chengbin/dataset/celeba-hq/celeba-1024-lafin",
+        #         "dataset_path": "datasets/celebahqr",
+        #         "config_path": "checkpoints/celebahq_styleganbaseae_new/config.yml",
+        #         "checkpoint_name": "celebahq_styleganbaseae_new",
+        #     },
+        # "8613_ffhq":
+        #     {
+        #         "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+        #         "code_path":"/cache/user-job-dir/code",
+        #         "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
+        #         "dataset_path": "datasets/FFHQr",
+        #         "config_path": "checkpoints/FFHQ_faceswap/config.yml",
+        #         "checkpoint_name": "FFHQ_faceswap",
+        #     },
+        # "8613_ffhq_deep":
+        #     {
+        #         "s3code_project_path": "s3://bucket-8613/chengbin/project/MA-lafin-07-24-17-55",
+        #         "code_path":"/cache/user-job-dir/code",
+        #         "s3data_path":"s3://bucket-8613/chengbin/dataset/ffhq-lafin",
+        #         "dataset_path": "datasets/FFHQr",
+        #         "config_path": "checkpoints/FFHQ_faceswap_deep/config.yml",
+        #         "checkpoint_name": "FFHQ_faceswap_deep",
+        #     },
+        # "2026_face_swap":
+        #     {
+        #         "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
+        #         "code_path":"/cache/user-job-dir/code",
+        #         "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
+        #         "dataset_path": "datasets/FFHQr",
+        #         "config_path": "checkpoints/FFHQ_faceswap/config.yml",
+        #         "checkpoint_name": "FFHQ_faceswap_inpainting",
+        #     },
 
 
 
