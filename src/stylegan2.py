@@ -1460,7 +1460,7 @@ class PixelNorm(nn.Module):
 
 
 class stylegan_rotate(BaseNetwork):
-    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = False):
+    def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = 4, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = False):
         super().__init__()
         # from .face_modules.model import Backbone
         from src.psp_encoder_utils.psp_encoder import IdentityEncoder,EqualLinear
@@ -1479,10 +1479,14 @@ class stylegan_rotate(BaseNetwork):
         else:
             self.num_layers = num_layers
         
-        self.arcface = IdentityEncoder(num_layers=50,depth=self.num_layers,mode='ir',input_nc=3)
+        self.id_encoder = IdentityEncoder(num_layers=50,depth=self.num_layers,mode='ir',input_nc=3)
+        encoder_ckpt = torch.load('saved_models/model_ir_se50.pth')
+        self.id_encoder.load_state_dict(encoder_ckpt, strict=False)
         self.arc_eval = arc_eval
         if self.arc_eval == True:
-            self.arcface.eval()
+            for name, p in self.id_encoder.named_parameters():
+                if name in encoder_ckpt.keys():
+                    p.requires_grad=False       
 
         layers = [PixelNorm()]
 
@@ -1573,18 +1577,13 @@ class stylegan_rotate(BaseNetwork):
             ref_image = ref_image[0]
             
         
-        if self.arc_eval == True:
-            with torch.no_grad():
-                self.arcface.eval()
-                #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
-                zid = self.arcface(resize_img)
-        else:
-            #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
-            zid = self.arcface(ref_image)
+
+        #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+        zid = self.id_encoder(ref_image)
         
         if Interpolation==True:
             #resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
-            zid2= self.arcface(ref_image2)
+            zid2= self.id_encoder(ref_image2)
             zid = (1-alpha)*zid + alpha*zid2
 
         styles=self.style(zid)

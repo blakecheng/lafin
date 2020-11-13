@@ -165,8 +165,11 @@ if __name__ == "__main__":
     import moxing as mox
     import os
 
-    path_cfg = "8613_face_roate"
-    gpu_num = 8
+    # path_cfg = "8613_face_roate"
+    # gpu_num = 8
+
+    path_cfg = "2026_face_roate"
+    gpu_num = 4
 
     if mode=="developement":
         path_dict[path_cfg]["code_path"]="/home/ma-user/work/code"

@@ -134,7 +134,10 @@ class Lafin():
         model = self.config.MODEL
         max_iteration = int(float((self.config.MAX_ITERS)))
         total = len(self.train_dataset)
-        
+
+        if hasattr(self.inpaint_model.generator,"id_encoder") and self.config.ARC_EVAL==True:
+            encoder_ckpt = torch.load('saved_models/model_ir_se50.pth')
+            self.inpaint_model.generator.id_encoder.load_state_dict(encoder_ckpt, strict=False)
    
         
         while(keep_training):

@@ -326,7 +326,7 @@ class InpaintingModel(BaseModel):
         # Apex
         
         self.gen_optimizer = optim.Adam(
-            params=generator.parameters(),
+            params=filter(lambda p: p.requires_grad,generator.parameters()),
             lr=float(config.LR),
             betas=(config.BETA1, config.BETA2)
         )
