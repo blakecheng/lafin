@@ -83,18 +83,18 @@ if __name__ == "__main__":
     mode = "remote"
     start = time.time()
 
-    path_cfg = "2026_face_roate"
+    path_cfg = "2026_face_roate2"
     gpu_num = 2
 
     path_dict = {
-        "2026_face_roate":
+        "2026_face_roate2":
             {
                 "s3code_project_path": "s3://bucket-2026/chengbin/project/MA-lafin-07-24-17-55",
                 "code_path":"/cache/user-job-dir/code",
                 "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
                 "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/ffhq_rotate_fix/config.yml",
-                "checkpoint_name": "FFHQ_rotate_fix",
+                "config_path": "checkpoints/ffhq_rotate_fix_global/config.yml",
+                "checkpoint_name": "FFHQ_rotate_fix_global",
             },
         "2026_face_roate_trainable":
             {

@@ -57,6 +57,7 @@ class IdentityEncoder(Module):
         self.style_count = depth
         ind_dict = {
             "18":[3,7],
+            "7": [3,7],
             "4": [1,2]
         }
         self.coarse_ind = ind_dict[str(depth)][0]

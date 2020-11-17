@@ -27,7 +27,7 @@ from .utils import create_mask
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True, mask_type = "base"):
+    def __init__(self, config, flist, landmark_flist, mask_flist, root=None,augment=True, training=True, landmark_type="landmark", mask_type = "base"):
         super(Dataset, self).__init__()
         self.config = config
         self.augment = augment

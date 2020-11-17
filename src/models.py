@@ -116,7 +116,7 @@ class InpaintingModel(BaseModel):
             arc_eval = config.ARC_EVAL
             generator = stylegan_rotate(image_size=image_size, \
                 latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
-                num_init_filters = 1)
+                num_init_filters = 1, arc_eval=arc_eval)
         elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             print("#####################")
             print("MSG_Inpainting_for_face_swap, USE stylegan generator, AE landmark!")
@@ -299,7 +299,14 @@ class InpaintingModel(BaseModel):
 
 
         l1_loss = nn.L1Loss().cuda()
-        perceptual_loss = PerceptualLoss().cuda()
+        # perceptual_loss = PerceptualLoss().cuda()
+        from lpips_pytorch import LPIPS
+        criterion = LPIPS(
+                net_type='vgg',  # choose a network type from ['alex', 'squeeze', 'vgg']
+                version='0.1'  # Currently, v0.1 is supported
+        )
+        perceptual_loss = criterion.cuda()
+        
         style_loss = StyleLoss().cuda()
         adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).cuda()
         self.tv_loss = TVLoss().cuda()
@@ -324,6 +331,8 @@ class InpaintingModel(BaseModel):
             
         
         # Apex
+
+        
         
         self.gen_optimizer = optim.Adam(
             params=filter(lambda p: p.requires_grad,generator.parameters()),
@@ -522,7 +531,7 @@ class InpaintingModel(BaseModel):
             gen_content_loss = self.perceptual_loss(outputs, images)
 
         gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
-        gen_loss += gen_content_loss
+        gen_loss += torch.mean(gen_content_loss)
 
 
         # generator style loss
@@ -1263,11 +1272,12 @@ class InpaintingModel(BaseModel):
                 noise = torch.zeros(batch_size, images.shape[2], images.shape[3], 1).float().cuda()
                 outputs = self.generator(inputs,noise)
         else:
-            images_masked = (images * (1 - masks).float()) + masks
+            
+            images_masked = self.augwrapper(images)
             inputs = torch.cat((images_masked, landmarks), dim=1)
-            scaled_masks_quarter = F.interpolate(masks, size=[int(masks.shape[2] / 4), int(masks.shape[3] / 4)],
+            scaled_masks_quarter = F.interpolate(landmarks, size=[int(landmarks.shape[2] / 4), int(landmarks.shape[3] / 4)],
                                         mode='bilinear', align_corners=True)
-            scaled_masks_half = F.interpolate(masks, size=[int(masks.shape[2] / 2), int(masks.shape[3] / 2)],
+            scaled_masks_half = F.interpolate(landmarks, size=[int(landmarks.shape[2] / 2), int(landmarks.shape[3] / 2)],
                                         mode='bilinear', align_corners=True)
             outputs = self.generator(inputs,masks,scaled_masks_half,scaled_masks_quarter)                                    # in: [rgb(3) + landmark(1)]
             

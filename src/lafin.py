@@ -136,6 +136,9 @@ class Lafin():
         total = len(self.train_dataset)
 
         if hasattr(self.inpaint_model.generator,"id_encoder") and self.config.ARC_EVAL==True:
+            print("fix arcface param")
+            for name,p in self.inpaint_model.generator.id_encoder.named_parameters():
+                print(name,p.requires_grad)
             encoder_ckpt = torch.load('saved_models/model_ir_se50.pth')
             self.inpaint_model.generator.id_encoder.load_state_dict(encoder_ckpt, strict=False)
    
@@ -147,7 +150,7 @@ class Lafin():
             progbar = Progbar(total, width=20, stateful_metrics=['epoch', 'iter'])
 
             for items in train_loader:
-
+                
                 self.inpaint_model.train()
                 if model==1 or model==3:
                     self.landmark_model.train()
@@ -219,7 +222,7 @@ class Lafin():
                     outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks)
                     outputs_merged = outputs
 
-                    psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
+                    psnr = self.psnr(self.postprocess(images*masks), self.postprocess(outputs_merged*masks))
                     mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(images)).float()
 
                     logs.append(('psnr', psnr.item()))

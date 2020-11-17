@@ -1486,7 +1486,10 @@ class stylegan_rotate(BaseNetwork):
         if self.arc_eval == True:
             for name, p in self.id_encoder.named_parameters():
                 if name in encoder_ckpt.keys():
-                    p.requires_grad=False       
+                    p.requires_grad=False  
+
+        # for name,p in self.id_encoder.named_parameters():
+        #     print(name,p.requires_grad)     
 
         layers = [PixelNorm()]
 
@@ -1561,14 +1564,17 @@ class stylegan_rotate(BaseNetwork):
 
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
-    def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0):
+    def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0,zeros_noise=True):
     
         batch_size = x.shape[0]
         image_size = self.image_size
         
         # style固定，noise不固定
         if input_noise==None:
-            input_noise = image_noise(batch_size, image_size)
+            if zeros_noise==True:
+                input_noise = torch.zeros(batch_size, image_size, image_size, 1).cuda()
+            else:
+                input_noise = image_noise(batch_size, image_size)
         else:
             input_noise = input_noise
 
