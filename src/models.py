@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from .networks import InpaintGenerator, Discriminator
-from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss,IDLoss
+from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss,New_AdversarialLoss,DICELoss
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
 from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,stylegan_base_faceae
@@ -114,9 +114,10 @@ class InpaintingModel(BaseModel):
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
             arc_eval = config.ARC_EVAL
+            is_transparent = True if (hasattr(config, 'LOSS_TYPE') and config.LOSS_TYPE=="learn_mask") else False
             generator = stylegan_rotate(image_size=image_size, \
                 latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
-                num_init_filters = 1, arc_eval=arc_eval)
+                num_init_filters = 1, arc_eval=arc_eval,transparent = is_transparent)
         elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             print("#####################")
             print("MSG_Inpainting_for_face_swap, USE stylegan generator, AE landmark!")
@@ -299,16 +300,26 @@ class InpaintingModel(BaseModel):
 
 
         l1_loss = nn.L1Loss().cuda()
-        # perceptual_loss = PerceptualLoss().cuda()
-        from lpips_pytorch import LPIPS
-        criterion = LPIPS(
-                net_type='vgg',  # choose a network type from ['alex', 'squeeze', 'vgg']
-                version='0.1'  # Currently, v0.1 is supported
-        )
-        perceptual_loss = criterion.cuda()
+        perceptual_loss = PerceptualLoss(net='pytorch').cuda()
+        # from lpips_pytorch import LPIPS
+        # criterion = LPIPS(
+        #         net_type='vgg',  # choose a network type from ['alex', 'squeeze', 'vgg']
+        #         version='0.1'  # Currently, v0.1 is supported
+        # )
+        # perceptual_loss = criterion.cuda()
+
         
         style_loss = StyleLoss().cuda()
-        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).cuda()
+
+        
+        
+
+        if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
+            adversarial_loss = New_AdversarialLoss(gan_type=config.GAN_LOSS).cuda()
+            self.dice_loss = DICELoss()
+        else:
+            adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).cuda()
+
         self.tv_loss = TVLoss().cuda()
         
         
@@ -326,7 +337,7 @@ class InpaintingModel(BaseModel):
         #     or self.inpaint_type == "stylegan_base_faceae"   :
         landmark_loss = Landmark_loss()
         self.add_module('landmark_loss',landmark_loss)
-        id_loss = IDLoss()
+        id_loss = PerceptualLoss(net='face').cuda()
         self.add_module('id_loss',id_loss)
             
         
@@ -477,6 +488,78 @@ class InpaintingModel(BaseModel):
             ("gcontent_l",gen_content_loss.item()),
             ("gstyle_l",gen_style_loss.item()),
             ("gtv_l",tv_loss.item()),
+            ("gen_id",gen_id_loss.item()),
+            ("gen_lm",gen_landmark_loss.item()),
+            ("dLoss",dis_loss.item())
+        ]
+        return outputs, gen_loss, dis_loss, logs
+    
+    def get_loss_mask(self,images, landmarks, masks,outputs):
+        gen_loss = 0
+        dis_loss = 0
+
+        pred_mask = outputs[:, -1:]
+        pred_images = outputs[:,:-1]
+        outputs = pred_images*pred_mask
+
+        # discriminator and generator loss
+        dis_input_real = images*masks
+        dis_input_fake = outputs.detach()
+        gen_input_fake = outputs
+
+
+        dis_real, _ = self.discriminator(torch.cat((dis_input_real, landmarks), dim=1))                   # in: [rgb(3)+landmark(1)]
+        dis_fake, _ = self.discriminator(torch.cat((dis_input_fake, landmarks), dim=1)) 
+        gen_fake, _ = self.discriminator(torch.cat((gen_input_fake, landmarks), dim=1))                  # in: [rgb(3)+landmark(1)]
+  
+        gen_gan_loss, dis_loss = self.adversarial_loss(gen_fake,dis_fake,dis_real)
+
+        gen_gan_loss = gen_gan_loss * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
+
+        # generator l1 loss
+  
+        gen_l1_loss = self.l1_loss(outputs, images*masks) * self.config.L1_LOSS_WEIGHT
+        gen_loss += gen_l1_loss
+
+
+        # generator perceptual loss
+        gen_content_loss = self.perceptual_loss(outputs, images*masks)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss
+
+
+        # generator style loss
+        gen_style_loss = self.style_loss(outputs, images*masks)
+        gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+        gen_loss += gen_style_loss
+
+        
+        # generator dice loss
+        gen_dice_loss = self.dice_loss(pred_mask,masks)
+        gen_dice_loss = gen_dice_loss * self.config.DICE_LOSS_WEIGHT
+        gen_loss += gen_dice_loss
+
+        #generator tv loss
+        # tv_loss = self.tv_loss(outputs)
+        # gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
+
+        # zid loss
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks)
+        gen_loss += gen_id_loss
+        
+        # landmark_loss
+        gen_landmark_loss = self.config.LM_LOSS_WEIGHT * self.landmark_loss(outputs, images*masks) 
+        gen_loss += gen_landmark_loss
+
+        # create logs
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gl1_l",gen_l1_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gstyle_l",gen_style_loss.item()),
+            ("gdice_l",gen_dice_loss.item()),
             ("gen_id",gen_id_loss.item()),
             ("gen_lm",gen_landmark_loss.item()),
             ("dLoss",dis_loss.item())
@@ -1165,7 +1248,9 @@ class InpaintingModel(BaseModel):
             outputs, gen_loss, dis_loss, logs = self.get_loss_msg(images, landmarks, masks,outputs)
         else:
             if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "inpainting":
-                outputs, gen_loss, dis_loss, logs = self.get_loss_inpainting(images, landmarks, masks,outputs)   
+                outputs, gen_loss, dis_loss, logs = self.get_loss_inpainting(images, landmarks, masks,outputs)
+            if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
+                outputs, gen_loss, dis_loss, logs = self.get_loss_mask(images, landmarks, masks,outputs)   
             else:
                 outputs, gen_loss, dis_loss, logs = self.get_loss1(images, landmarks, masks,outputs)
     

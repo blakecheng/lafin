@@ -1,10 +1,3 @@
-import os
-import sys
-sys.path.insert(0, "./3DDFA_V2")
-# os.chdir("3DDFA_V2")
-import glob
-
-from tqdm import tqdm
 import cv2
 import yaml
 
@@ -15,9 +8,15 @@ from utils.render import render
 from utils.depth import depth
 
 import matplotlib.pyplot as plt
+import os
+
+root = "/opt/mnt/cb/dataset/FFHQ/ffhq-lafin/images"
+save_dir = "/opt/mnt/cb/dataset/FFHQ/ffhq-lafin/render"
+img_list= os.listdir(root)
+
+from tqdm import tqdm
 from utils.pncc import pncc
 
-# load config
 cfg = yaml.load(open('configs/mb1_120x120.yml'), Loader=yaml.SafeLoader)
 
 # Init FaceBoxes and TDDFA, recommend using onnx flag
@@ -36,14 +35,10 @@ else:
     tddfa = TDDFA(gpu_mode=False, **cfg)
     face_boxes = FaceBoxes()
 
-
-datapath = glob.glob("/data/chengbin/celeba/celeba-hq/celeba-256/*.jpg")
-result_path = "/data/chengbin/celeba/celeba-hq/celeba-256-3d/pncc"
-for data in tqdm(datapath):
-    root,filename = os.path.split(data)
-    basename,ext = os.path.splitext(filename)
-    img = cv2.imread(data)
+for i in tqdm(range(len(img_list))):
+    img_fp = os.path.join(root,img_list[i])
+    img = cv2.imread(img_fp)
     boxes = face_boxes(img)
     param_lst, roi_box_lst = tddfa(img, boxes)
     ver_lst = tddfa.recon_vers(param_lst, roi_box_lst, dense_flag=True)
-    pncc(img, ver_lst, tddfa.tri, show_flag=False, with_bg_flag=False,wfp=os.path.join(result_path,filename))
+    out=render(img, ver_lst, tddfa.tri, show_flag=False, with_bg_flag=False,wfp=os.path.join(save_dir,img_list[i]))

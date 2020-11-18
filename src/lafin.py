@@ -654,7 +654,12 @@ class Lafin():
                 outputs, multiscales = outputs
                 outputs_merged = (outputs * masks) + (images * (1 - masks))
             else:
-                outputs_merged = (outputs * masks) + (images * (1 - masks))
+                if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
+                    pred_mask = outputs[:, -1:]
+                    outputs = outputs[:,:-1]
+                    outputs_merged = outputs*masks
+                else:
+                    outputs_merged = (outputs * masks) + (images * (1 - masks))
 
            
             

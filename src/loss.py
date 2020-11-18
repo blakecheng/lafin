@@ -4,7 +4,10 @@ import torchvision.models as models
 from .networks import MobileNetV2
 from .face_modules.model import Backbone
 import torch.nn.functional as F
-#from torch.utils.data.dataloader import pin_memory_batch
+import torchvision
+from collections import OrderedDict
+import os
+# from torch.utils.data.dataloader import pin_memory_batch
 
 class AdversarialLoss(nn.Module):
     r"""
@@ -48,6 +51,43 @@ class AdversarialLoss(nn.Module):
             return loss
 
 
+class New_AdversarialLoss(nn.Module):
+    def __init__(self, gan_type):
+        super().__init__()
+        self.gan_type = gan_type
+
+    def get_dis_preds(self, real_score, fake_score):
+        if self.gan_type == 'gan':
+            real_pred = real_score
+            fake_pred = fake_score
+        elif self.gan_type == 'rgan':
+            real_pred = real_score - fake_score
+            fake_pred = fake_score - real_score
+        elif self.gan_type == 'ragan':
+            real_pred = real_score - fake_score.mean()
+            fake_pred = fake_score - real_score.mean()
+        else:
+            raise Exception('Incorrect `gan_type` argument')
+        return real_pred, fake_pred
+
+    def forward(self, fake_score_G,fake_score_D,real_score):
+
+        real_pred, fake_pred_D = self.get_dis_preds(real_score, fake_score_D)
+        _, fake_pred_G = self.get_dis_preds(real_score, fake_score_G)
+
+        loss_D = torch.relu(1. - real_pred).mean() + torch.relu(1. + fake_pred_D).mean()  # TODO: check correctness
+
+        if self.gan_type == 'gan':
+            loss_G = -fake_pred_G.mean()
+        elif 'r' in self.gan_type:
+            loss_G = torch.relu(1. + real_pred).mean() + torch.relu(1. - fake_pred_G).mean()
+        else:
+            raise Exception('Incorrect `gan_type` argument')
+
+        return loss_G, loss_D
+
+
+
 class StyleLoss(nn.Module):
     r"""
     Perceptual loss, VGG-based
@@ -86,32 +126,144 @@ class StyleLoss(nn.Module):
 
 
 
+# class PerceptualLoss(nn.Module):
+#     r"""
+#     Perceptual loss, VGG-based
+#     https://arxiv.org/abs/1603.08155
+#     https://github.com/dxyang/StyleTransfer/blob/master/utils.py
+#     """
+
+#     def __init__(self, weights=[1.0, 1.0, 1.0, 1.0, 1.0]):
+#         super(PerceptualLoss, self).__init__()
+#         self.add_module('vgg', VGG19())
+#         self.criterion = torch.nn.L1Loss()
+#         self.weights = weights
+
+#     def __call__(self, x, y):
+#         # Compute features
+#         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
+
+#         content_loss = 0.0
+#         content_loss += self.weights[0] * self.criterion(x_vgg['relu1_1'], y_vgg['relu1_1'])
+#         content_loss += self.weights[1] * self.criterion(x_vgg['relu2_1'], y_vgg['relu2_1'])
+#         content_loss += self.weights[2] * self.criterion(x_vgg['relu3_1'], y_vgg['relu3_1'])
+#         content_loss += self.weights[3] * self.criterion(x_vgg['relu4_1'], y_vgg['relu4_1'])
+#         content_loss += self.weights[4] * self.criterion(x_vgg['relu5_1'], y_vgg['relu5_1'])
+
+#         return content_loss
+
+class IDLoss(nn.Module):
+    def __init__(self):
+        super(IDLoss,self).__init__()
+
+        arcface = Backbone(50, 0.6, 'ir_se').cuda()
+        arcface.eval()
+        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        self.arcface = arcface
+        self.arcface.eval()
+        
+    def forward(self,img_true,img_pred):
+        with torch.no_grad():
+            self.arcface.eval()
+            img_true = F.interpolate(img_true, [112, 112], mode='bilinear', align_corners=True)
+            img_pred = F.interpolate(img_pred, [112, 112], mode='bilinear', align_corners=True)
+            feature_ture, _ = self.arcface(img_true)
+            feature_pred, _ = self.arcface(img_pred)
+        return  (1 - torch.cosine_similarity(feature_ture, feature_pred, dim=1)).mean()
+
 class PerceptualLoss(nn.Module):
-    r"""
-    Perceptual loss, VGG-based
-    https://arxiv.org/abs/1603.08155
-    https://github.com/dxyang/StyleTransfer/blob/master/utils.py
-    """
+    def __init__(self, vgg_weights_dir="saved_models", net='face', normalize_grad=False):
+        super().__init__()
+        self.normalize_grad = normalize_grad
 
-    def __init__(self, weights=[1.0, 1.0, 1.0, 1.0, 1.0]):
-        super(PerceptualLoss, self).__init__()
-        self.add_module('vgg', VGG19())
-        self.criterion = torch.nn.L1Loss()
-        self.weights = weights
+        if net == 'pytorch':
+            model = torchvision.models.vgg19(pretrained=True).features
 
-    def __call__(self, x, y):
-        # Compute features
-        x_vgg, y_vgg = self.vgg(x), self.vgg(y)
+            mean = torch.tensor([0.485, 0.456, 0.406])
+            std  = torch.tensor([0.229, 0.224, 0.225])
 
-        content_loss = 0.0
-        content_loss += self.weights[0] * self.criterion(x_vgg['relu1_1'], y_vgg['relu1_1'])
-        content_loss += self.weights[1] * self.criterion(x_vgg['relu2_1'], y_vgg['relu2_1'])
-        content_loss += self.weights[2] * self.criterion(x_vgg['relu3_1'], y_vgg['relu3_1'])
-        content_loss += self.weights[3] * self.criterion(x_vgg['relu4_1'], y_vgg['relu4_1'])
-        content_loss += self.weights[4] * self.criterion(x_vgg['relu5_1'], y_vgg['relu5_1'])
+            num_layers = 30
 
+        elif net == 'caffe':
+            vgg_weights = torch.load(os.path.join(vgg_weights_dir, 'vgg19-d01eb7cb.pth'))
 
-        return content_loss
+            map = {'classifier.6.weight': u'classifier.7.weight', 'classifier.6.bias': u'classifier.7.bias'}
+            vgg_weights = OrderedDict([(map[k] if k in map else k, v) for k, v in vgg_weights.items()])
+
+            model = torchvision.models.vgg19()
+            model.classifier = nn.Sequential(Flatten(), *model.classifier._modules.values())
+
+            model.load_state_dict(vgg_weights)
+
+            model = model.features
+
+            mean = torch.tensor([103.939, 116.779, 123.680]) / 255.
+            std = torch.tensor([1., 1., 1.]) / 255.
+
+            num_layers = 30
+
+        elif net == 'face':
+            # Load caffe weights for VGGFace, converted from
+            # https://media.githubusercontent.com/media/yzhang559/vgg-face/master/VGG_FACE.caffemodel.pth
+            # The base model is VGG16, not VGG19.
+            model = torchvision.models.vgg16().features
+            model.load_state_dict(torch.load(os.path.join(vgg_weights_dir, 'vgg_face_weights.pth')))
+
+            mean = torch.tensor([103.939, 116.779, 123.680]) / 255.
+            std = torch.tensor([1., 1., 1.]) / 255.
+
+            num_layers = 30
+
+        else:
+            raise ValueError(f"Unknown type of PerceptualLoss: expected '{{pytorch,caffe,face}}', got '{net}'")
+
+        self.register_buffer('mean', mean[None, :, None, None])
+        self.register_buffer('std' ,  std[None, :, None, None])
+
+        layers_avg_pooling = []
+
+        for weights in model.parameters():
+            weights.requires_grad = False
+
+        for module in model.modules():
+            if module.__class__.__name__ == 'Sequential':
+                continue
+            elif module.__class__.__name__ == 'MaxPool2d':
+                layers_avg_pooling.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0))
+            else:
+                layers_avg_pooling.append(module)
+
+            if len(layers_avg_pooling) >= num_layers:
+                break
+
+        layers_avg_pooling = nn.Sequential(*layers_avg_pooling)
+
+        self.model = layers_avg_pooling
+
+    def normalize_inputs(self, x):
+        return (x - self.mean) / self.std
+
+    def forward(self, input, target):
+        input = (input + 1) / 2
+        target = (target.detach() + 1) / 2
+
+        loss = 0
+
+        features_input = self.normalize_inputs(input)
+        features_target = self.normalize_inputs(target)
+
+        for layer in self.model:
+            features_input = layer(features_input)
+            features_target = layer(features_target)
+
+            if layer.__class__.__name__ == 'ReLU':
+                if self.normalize_grad:
+                    pass
+                else:
+                    loss = loss + F.l1_loss(features_input, features_target)
+
+        return loss
+
 
 
 
@@ -267,21 +419,26 @@ class Landmark_loss(nn.Module):
         return torch.mean(landmark_loss)
 
 
-class IDLoss(nn.Module):
-    def __init__(self):
-        super(IDLoss,self).__init__()
 
-        arcface = Backbone(50, 0.6, 'ir_se').cuda()
-        arcface.eval()
-        arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
-        self.arcface = arcface
-        self.arcface.eval()
-        
-    def forward(self,img_true,img_pred):
-        with torch.no_grad():
-            self.arcface.eval()
-            img_true = F.interpolate(img_true, [112, 112], mode='bilinear', align_corners=True)
-            img_pred = F.interpolate(img_pred, [112, 112], mode='bilinear', align_corners=True)
-            feature_ture, _ = self.arcface(img_true)
-            feature_pred, _ = self.arcface(img_pred)
-        return  (1 - torch.cosine_similarity(feature_ture, feature_pred, dim=1)).mean()
+
+
+
+class DICELoss(nn.Module):
+    def __init__(self):
+        super(DICELoss,self).__init__()
+
+    def forward(self, input, target):
+        N = target.size(0)
+        smooth = 1
+
+        input_flat = input.view(N, -1)
+        target_flat = target.view(N, -1)
+
+        intersection = input_flat * target_flat
+
+        loss = 2 * (intersection.sum(1) + smooth) / (input_flat.sum(1) + target_flat.sum(1) + smooth)
+        loss = 1 - loss.sum() / N
+
+        return loss
+
+
