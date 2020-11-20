@@ -1561,6 +1561,8 @@ class stylegan_rotate(BaseNetwork):
                 rgba = transparent
             )
             self.g_blocks.append(block)
+        
+        self.transparent = transparent
 
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
@@ -1613,6 +1615,8 @@ class stylegan_rotate(BaseNetwork):
                 x = attn(x)
             x, rgb = block(x, rgb, style, input_noise)
         
+        if self.transparent:
+            rgb[:, -1:] = torch.clamp(rgb[:, -1:].clone(),0.0,1.0)
         return rgb
 
 

@@ -93,8 +93,8 @@ if __name__ == "__main__":
                 "code_path":"/cache/user-job-dir/code",
                 "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
                 "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/ffhq_rotate_fix/config.yml",
-                "checkpoint_name": "FFHQ_rotate_fix",
+                "config_path": "checkpoints/FFHQ_rotate_mask/config.yml",
+                "checkpoint_name": "FFHQ_rotate_mask",
             },
         "2026_face_roate_trainable":
             {
@@ -102,8 +102,8 @@ if __name__ == "__main__":
                 "code_path":"/cache/user-job-dir/code",
                 "s3data_path":"s3://bucket-2026/chengbin/dataset/ffhq-lafin",
                 "dataset_path": "datasets/FFHQr",
-                "config_path": "checkpoints/ffhq_rotate_trainable/config.yml",
-                "checkpoint_name": "FFHQ_rotate_trainable",
+                "config_path": "checkpoints/FFHQ_rotate_mask_trainable/config.yml",
+                "checkpoint_name": "FFHQ_rotate_mask_trainable",
             },
         "8613_face_roate":
             {
