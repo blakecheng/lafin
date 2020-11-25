@@ -316,8 +316,37 @@ class RGBBlock(nn.Module):
 
         if self.upsample is not None:
             x = self.upsample(x)
-
         return x
+
+class Wide_RGBBlock(nn.Module):
+    def __init__(self, input_channels, upsample, rgba = False):
+        super().__init__()
+        self.input_channels = input_channels
+
+        out_filters = 3 if not rgba else 4
+        self.conv = nn.Conv2d(in_channels=input_channels, out_channels=out_filters, kernel_size=3, stride=1, padding=1, bias=True)
+        self.upsample = nn.Upsample(scale_factor = 2, mode='bilinear', align_corners=False) if upsample else None
+
+    def forward(self, x, prev_rgb):
+        b, c, h, w = x.shape
+        x = self.conv(x)
+
+        if prev_rgb is not None:
+            x = x + prev_rgb
+
+        if self.upsample is not None:
+            x = self.upsample(x)
+        return x
+
+
+# def simple_to_rgb(in_channels,rgba,prev_rgb=None):
+#     out_filters = 3 if not rgba else 4
+#     x = nn.Conv2d(in_channels, out_filters, (1, 1), bias=True)
+#     if prev_rgb is not None:
+#         x = x + prev_rgb
+#     return x
+
+
 
 class Conv2DMod(nn.Module):
     def __init__(self, in_chan, out_chan, kernel, demod=True, stride=1, dilation=1, **kwargs):
@@ -354,6 +383,8 @@ class Conv2DMod(nn.Module):
 
         x = x.reshape(-1, self.filters, h, w)
         return x
+
+
 
 class GeneratorBlock(nn.Module):
     def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False):
@@ -401,7 +432,8 @@ class GeneratorBlock(nn.Module):
         ## (64, 64, 64), (3, 128, 128)
         ## (32, 128, 128),(3, 256, 256)
         ## (16, 256, 256), (3, 256, 256)
-        
+
+
 
 class Reenactment_DecoderBlock(nn.Module):
     def __init__(self, latent_dim, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False, add_trans = False):
@@ -1621,6 +1653,292 @@ class stylegan_rotate(BaseNetwork):
 
 
 
+class MultiStyleEncoder(nn.Module):
+    def __init__(self,c_in=3,network_capacity=16,num_layers=7,fmap_max=1024):
+        super(MultiStyleEncoder, self).__init__()
+
+        from .faceshifter_generator import conv,conv_transpose,init_weights
+        filters = [c_in] + [(network_capacity) * (2 ** i) for i in range(num_layers)]
+
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        en_blocks = []
+        de_blocks = []
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            en_blocks.append(conv(in_chan,out_chan))
+
+        for ind, (out_chan, in_chan) in enumerate(chan_in_out[::-1][:-1]):
+            de_blocks.append(conv_transpose(in_chan,out_chan))
+        
+        self.en_blocks = nn.ModuleList(en_blocks)
+        self.de_blocks = nn.ModuleList(de_blocks)
+
+        # self.conv1 = conv(c_in, 32)
+        # self.conv2 = conv(32, 64)
+        # self.conv3 = conv(64, 128)
+        # self.conv4 = conv(128, 256)
+        # self.conv5 = conv(256, 512)
+        # self.conv6 = conv(512, 1024)
+        # self.conv7 = conv(1024, 1024)
+
+        # self.conv_t1 = conv_transpose(1024, 1024)
+        # self.conv_t2 = conv_transpose(1024, 512)
+        # self.conv_t3 = conv_transpose(512, 256)
+        # self.conv_t4 = conv_transpose(256, 128)
+        # self.conv_t5 = conv_transpose(128, 64)
+        # self.conv_t6 = conv_transpose(64, 32)
+
+        self.apply(init_weights)
+
+    def forward(self, img):    # in 3*256256
+        # enc1 = self.conv1(Xt) # 32，128，128
+        # enc2 = self.conv2(enc1) # 64，64，64
+        # enc3 = self.conv3(enc2) # 128，32，32
+        # enc4 = self.conv4(enc3) # 256，16，16
+        # enc5 = self.conv5(enc4) # 512，8，8
+        # enc6 = self.conv6(enc5) # 1024,4,4
+        # #print([i.shape for i in [enc1,enc2,enc3,enc4,enc5,enc6]])
+        
+        # z_att1 = self.conv7(enc6)
+        # dec1, z_att2 = self.conv_t1(z_att1, enc6)
+        # dec2, z_att3 = self.conv_t2(dec1, enc5)
+        # dec3, z_att4 = self.conv_t3(dec2, enc4)
+        # dec4, z_att5 = self.conv_t4(dec3, enc3)
+        # dec5, z_att6 = self.conv_t5(dec4, enc2)
+        # dec6, z_att7 = self.conv_t6(dec5, enc1)
+        enc_list = []
+        for en_block in self.en_blocks:
+            img = en_block(img)
+            enc_list.append(img)
+        
+        style_list = []
+        # style_list.append(img)
+        for (de_block,enc) in zip(self.de_blocks,enc_list[:-1][::-1]):
+            img,style = de_block(img,enc)
+            style_list.append(style)
+        
+        # z_att8 = F.interpolate(z_att7, scale_factor=2, mode='bilinear', align_corners=True
+        return style_list
+
+class WideAdaptiveInstanceNorm(nn.Module):
+    def __init__(self, c_x, c_style):
+        super().__init__()
+        self.c_x = c_x
+        self.c_style = c_style
+        self.style_conv1 = nn.Conv2d(in_channels=c_style, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+        self.style_conv2 = nn.Conv2d(in_channels=c_style, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+        self.norm = nn.InstanceNorm2d(c_x, affine=False)
+
+    def forward(self,h,style):
+        h_norm = self.norm(h)
+        beta=self.style_conv1(style)
+        gamma = self.style_conv2(style)
+        out = gamma*h_norm+beta
+        return out
+
+
+        
+class WideGeneratorBlock(nn.Module):
+    def __init__(self, style_channels, input_channels, filters, upsample = True, upsample_rgb = True, rgba = False, fmap_max=1024):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
+        
+        # self.to_style1 = nn.Linear(latent_dim, input_channels)
+        self.to_noise1 = nn.Linear(1, filters)
+        self.conv1 = nn.Conv2d(in_channels=input_channels, out_channels=filters, kernel_size=3, stride=1, padding=1, bias=False)
+        self.adain1 = WideAdaptiveInstanceNorm(filters, style_channels)
+        
+        # self.to_style2 = nn.Linear(latent_dim, filters)
+        self.to_noise2 = nn.Linear(1, filters)
+        self.conv2 = nn.Conv2d(in_channels=filters, out_channels=filters, kernel_size=3, stride=1, padding=1, bias=False)
+        self.adain2 = WideAdaptiveInstanceNorm(filters, style_channels)
+         
+        self.activation = leaky_relu()
+        self.to_rgb = Wide_RGBBlock(filters, upsample_rgb,rgba)
+        self.rgba = rgba
+
+
+    def forward(self, x, prev_rgb, istyle, inoise):
+        
+
+        inoise = inoise[:, :x.shape[2], :x.shape[3], :]
+        noise1 = self.to_noise1(inoise).permute((0, 3, 2, 1)) 
+        noise2 = self.to_noise2(inoise).permute((0, 3, 2, 1)) # 
+
+        x = self.conv1(x)
+        x = self.activation(x + noise1)
+        
+        x = self.adain1(x,istyle)
+        
+        x = self.conv2(x)
+        x = self.activation(x + noise2)
+        x = self.adain2(x,istyle)
+
+        if self.upsample is not None:
+            x = self.upsample(x)
+        
+        rgb = self.to_rgb(x, prev_rgb)
+        return x, rgb
+
+
+class wide_stylegan_rotate(BaseNetwork):
+    def __init__(self, image_size, network_capacity = 16, num_layers = 4, transparent = False, attn_layers = [], fmap_max = 1024, num_init_filters=1,arc_eval = False):
+        super().__init__()
+        # from .face_modules.model import Backbone
+   
+        # arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
+        # self.arcface = arcface
+        # self.arc_eval = arc_eval
+        # if self.arc_eval == True:
+        #     self.arcface.eval()
+        
+        self.image_size = image_size
+        if num_layers == None:
+            self.num_layers = int(log2(image_size) - 1)
+        else:
+            self.num_layers = num_layers
+        
+        self.id_encoder = MultiStyleEncoder(c_in=3,network_capacity=network_capacity,num_layers=num_layers,fmap_max=fmap_max)
+        encoder_ckpt = torch.load('saved_models/model_ir_se50.pth')
+        self.id_encoder.load_state_dict(encoder_ckpt, strict=False)
+        self.arc_eval = arc_eval
+        if self.arc_eval == True:
+            for name, p in self.id_encoder.named_parameters():
+                if name in encoder_ckpt.keys():
+                    p.requires_grad=False  
+
+        # for name,p in self.id_encoder.named_parameters():
+        #     print(name,p.requires_grad)     
+
+        layers = [PixelNorm()]
+
+        ## stylegan e
+        blocks = []
+        filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(self.num_layers)]
+        
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        chan_in_out = list(zip(filters[:-1], filters[1:]))
+
+        blocks = []
+        quantize_blocks = []
+        attn_blocks = []
+
+        for ind, (in_chan, out_chan) in enumerate(chan_in_out):
+            num_layer = ind + 1
+            is_not_last = ind != (len(chan_in_out) - 1)
+
+            block = DiscriminatorBlock(in_chan, out_chan, downsample = is_not_last)
+            blocks.append(block)
+
+            attn_fn = attn_and_ff(out_chan) if num_layer in attn_layers else None
+
+            attn_blocks.append(attn_fn)
+
+            
+        self.e_blocks = nn.ModuleList(blocks)
+        self.e_attn_blocks = nn.ModuleList(attn_blocks)
+            
+        
+        ### stylegan g
+        
+        filters = [network_capacity * (2 ** (i)) for i in range(self.num_layers)][::-1]
+
+        set_fmap_max = partial(min, fmap_max)
+        filters = list(map(set_fmap_max, filters))
+        # init_channels = filters[0]
+        # filters = [init_channels, *filters]
+        in_out_pairs = zip(filters[:-1], filters[1:])
+
+        self.g_blocks = nn.ModuleList([])
+        self.g_attns = nn.ModuleList([])
+
+
+        print("Generator:")
+        for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
+            print(in_chan, out_chan)
+            # not_first = ind != 0
+            not_last = ind != (self.num_layers - 2)
+            num_layer = self.num_layers - ind
+
+            attn_fn = attn_and_ff(in_chan) if num_layer in attn_layers else None
+
+            self.g_attns.append(attn_fn)
+            block = WideGeneratorBlock(
+                in_chan,
+                in_chan,
+                out_chan,
+                upsample = True,
+                upsample_rgb = not_last,
+                rgba = transparent
+            )
+            self.g_blocks.append(block)
+        
+        self.transparent = transparent
+
+        # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
+        
+    def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0,zeros_noise=True):
+    
+        batch_size = x.shape[0]
+        image_size = self.image_size
+        
+        # style固定，noise不固定
+        if input_noise==None:
+            if zeros_noise==True:
+                input_noise = torch.zeros(batch_size, image_size, image_size, 1)
+                if torch.cuda.is_available():
+                    input_noise = input_noise.cuda()
+            else:
+                input_noise = image_noise(batch_size, image_size)
+        else:
+            input_noise = input_noise
+
+        if Interpolation==True:
+            ref_image2 = ref_image[1]
+            ref_image = ref_image[0]
+            
+        
+
+        #resize_img = F.interpolate(ref_image, [112, 112], mode='bilinear', align_corners=True)
+        zid = self.id_encoder(ref_image)
+        
+        if Interpolation==True:
+            #resize_img2 = F.interpolate(ref_image2, [112, 112], mode='bilinear', align_corners=True)
+            zid2= self.id_encoder(ref_image2)
+            zid = (1-alpha)*zid + alpha*zid2
+
+        # styles=self.style(zid)
+
+        styles = zid
+        # for style in styles:
+        #     print(style.shape)
+        
+        # styles = zid.view(batch_size, 1, self.latent_dim)
+        
+        # styles = styles.expand(batch_size,self.style_depth , self.latent_dim)
+        # #styles = self.single_style.expand(batch_size, -1, -1)
+
+        for (block, attn_block) in zip(self.e_blocks, self.e_attn_blocks):
+            x = block(x)
+            
+            if attn_block is not None:
+                x = attn_block(x)
+
+
+        # print([len(i) for i in [styles, self.g_blocks, self.g_attns]])
+        rgb = None
+        for style, block, attn in zip(styles, self.g_blocks, self.g_attns):
+            if attn is not None:
+                x = attn(x)
+
+            x, rgb = block(x, rgb, style, input_noise)
+        
+        if self.transparent:
+            rgb[:, -1:] = torch.clamp(rgb[:, -1:].clone(),0.0,1.0)
+        return rgb
 
 
 class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):

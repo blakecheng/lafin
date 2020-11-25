@@ -127,6 +127,26 @@ class ADD(nn.Module):
         return (torch.ones_like(M).to(M.device) - M) * A + M * I
 
 
+class SD(nn.Module):
+    def __init__(self, c_x, c_style):
+        self.c_x = c_x
+        self.c_style = c_style
+        self.style_conv1 = nn.Conv2d(in_channels=c_style, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+        self.style_conv2 = nn.Conv2d(in_channels=c_style, out_channels=c_x, kernel_size=1, stride=1, padding=0, bias=True)
+        self.norm = nn.InstanceNorm2d(c_x, affine=False)
+
+    def forward(self,h,style):
+        h_norm = self.norm(h)
+        beta=self.style_conv1(style)
+        gamma = self.style_conv2(style)
+        out = gamma*h_norm+beta
+        return out
+
+
+        
+
+
+
 class ADDResBlk(nn.Module):
     def __init__(self, c_in, c_out, c_att, c_id):
         super(ADDResBlk, self).__init__()

@@ -171,6 +171,9 @@ class IDLoss(nn.Module):
             feature_pred, _ = self.arcface(img_pred)
         return  (1 - torch.cosine_similarity(feature_ture, feature_pred, dim=1)).mean()
 
+
+
+
 class PerceptualLoss(nn.Module):
     def __init__(self, vgg_weights_dir="saved_models", net='face', normalize_grad=False):
         super().__init__()
@@ -220,6 +223,9 @@ class PerceptualLoss(nn.Module):
         self.register_buffer('mean', mean[None, :, None, None])
         self.register_buffer('std' ,  std[None, :, None, None])
 
+        self.net = net
+
+
         layers_avg_pooling = []
 
         for weights in model.parameters():
@@ -243,12 +249,34 @@ class PerceptualLoss(nn.Module):
     def normalize_inputs(self, x):
         return (x - self.mean) / self.std
 
-    def forward(self, input, target):
+    def forward(self, input, target,landmarks=None):
+
+        if self.net == "face":
+            if landmarks is not None:
+                bboxes_estimate = compute_bboxes_from_keypoints(landmarks)
+                # convert bboxes from [0; 1] to pixel coordinates
+                h, w = input.shape[2:]
+                bboxes_estimate[:, 0:2] *= h
+                bboxes_estimate[:, 2:4] *= w
+            else:
+                crop_factor = 1 / 1.8
+                h, w = input.shape[2:]
+
+                t = h * (1 - crop_factor) / 2
+                l = w * (1 - crop_factor) / 2
+                b = h - t
+                r = w - l
+
+                bboxes_estimate = torch.empty((1, 4), dtype=torch.float32, device=input.device)
+                bboxes_estimate[0].copy_(torch.tensor([t, b, l, r]))
+                bboxes_estimate = bboxes_estimate.expand(len(input), 4)
+
+            fake_rgb_cropped = crop_and_resize(input, bboxes_estimate)
+            real_rgb_cropped = crop_and_resize(target, bboxes_estimate)
+
         input = (input + 1) / 2
         target = (target.detach() + 1) / 2
-
         loss = 0
-
         features_input = self.normalize_inputs(input)
         features_target = self.normalize_inputs(target)
 
@@ -264,6 +292,53 @@ class PerceptualLoss(nn.Module):
 
         return loss
 
+def crop_and_resize(images, bboxes, target_size=None):
+    """
+    images: B x C x H x W
+    bboxes: B x 4; [t, b, l, r], in pixel coordinates
+    target_size (optional): tuple (h, w)
+
+    return value: B x C x h x w
+
+    Crop i-th image using i-th bounding box, then resize all crops to the
+    desired shape (default is the original images' size, H x W).
+    """
+    t, b, l, r = bboxes.t().float()
+    batch_size, num_channels, h, w = images.shape
+
+    affine_matrix = torch.zeros(batch_size, 2, 3, dtype=torch.float32, device=images.device)
+    affine_matrix[:, 0, 0] = (r-l) / w
+    affine_matrix[:, 1, 1] = (b-t) / h
+    affine_matrix[:, 0, 2] = (l+r) / w - 1
+    affine_matrix[:, 1, 2] = (t+b) / h - 1
+
+    output_shape = (batch_size, num_channels) + (target_size or (h, w))
+    try:
+        grid = torch.affine_grid_generator(affine_matrix, output_shape, False)
+    except TypeError: # PyTorch < 1.4.0
+        grid = torch.affine_grid_generator(affine_matrix, output_shape)
+    return torch.nn.functional.grid_sample(images, grid, 'bilinear', 'reflection')
+
+def compute_bboxes_from_keypoints(keypoints):
+    """
+    keypoints: B x 68*2
+
+    return value: B x 4 (t, b, l, r)
+
+    Compute a very rough bounding box approximate from 68 keypoints.
+    """
+    x, y = keypoints.float().view(-1, 68, 2).transpose(0, 2)
+
+    face_height = y[8] - y[27]
+    b = y[8] + face_height * 0.2
+    t = y[27] - face_height * 0.47
+
+    midpoint_x = (x.min() + x.max()) / 2
+    half_height = (b - t) * 0.5
+    l = midpoint_x - half_height
+    r = midpoint_x + half_height
+
+    return torch.stack([t, b, l, r], dim=1)
 
 
 

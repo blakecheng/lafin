@@ -9,7 +9,7 @@ from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_lo
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
 from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,stylegan_base_faceae
-from .stylegan2 import stylegan_rotate
+from .stylegan2 import stylegan_rotate,wide_stylegan_rotate
 # from .stylegan2 import dualnet
 from .res_unet import MultiScaleResUNet
 from .faceshifter_generator import faceshifter_inpaintor,faceshifter_reenactment,faceshifter_reenactment2
@@ -118,6 +118,19 @@ class InpaintingModel(BaseModel):
             generator = stylegan_rotate(image_size=image_size, \
                 latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
                 num_init_filters = 1, arc_eval=arc_eval,transparent = is_transparent)
+        elif self.inpaint_type == "face_rotate_wide":
+            print("#####################")
+            print("Inpainting_for_face_rotate!")
+            print("#####################\n")
+            image_size = config.INPUT_SIZE
+            latent_dim = config.LATENT
+            num_layers = config.NUM_LAYERS
+            network_capacity = config.NETWORK_CAPACITY
+            arc_eval = config.ARC_EVAL
+            is_transparent = True if (hasattr(config, 'LOSS_TYPE') and config.LOSS_TYPE=="learn_mask") else False
+            generator = wide_stylegan_rotate(image_size=image_size, \
+                network_capacity=network_capacity,num_layers=num_layers, \
+                num_init_filters = 1, arc_eval=arc_eval,transparent = is_transparent,fmap_max=1024)
         elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             print("#####################")
             print("MSG_Inpainting_for_face_swap, USE stylegan generator, AE landmark!")
@@ -494,7 +507,7 @@ class InpaintingModel(BaseModel):
         ]
         return outputs, gen_loss, dis_loss, logs
     
-    def get_loss_mask(self,images, landmarks, masks,outputs):
+    def get_loss_mask(self,images, landmarks, masks,outputs,landmarks_points):
         gen_loss = 0
         dis_loss = 0
 
@@ -545,7 +558,7 @@ class InpaintingModel(BaseModel):
         # gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
         # zid loss
-        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks)
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks,landmarks_points)
         gen_loss += gen_id_loss
         
         # landmark_loss
@@ -1221,7 +1234,7 @@ class InpaintingModel(BaseModel):
     
     
 ##################################################################################
-    def process(self, images, landmarks, masks):
+    def process(self, images, landmarks, masks,landmarks_points=None):
         self.iteration += 1
 
         # zero optimizers
@@ -1250,7 +1263,7 @@ class InpaintingModel(BaseModel):
             if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "inpainting":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_inpainting(images, landmarks, masks,outputs)
             if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
-                outputs, gen_loss, dis_loss, logs = self.get_loss_mask(images, landmarks, masks,outputs)   
+                outputs, gen_loss, dis_loss, logs = self.get_loss_mask(images, landmarks, masks,outputs,landmarks_points)   
             else:
                 outputs, gen_loss, dis_loss, logs = self.get_loss1(images, landmarks, masks,outputs)
     
@@ -1312,7 +1325,7 @@ class InpaintingModel(BaseModel):
             return ref_landmarks,ref_images,rgb,input_noise,style,is_same
         elif self.inpaint_type == "s2_ae_landmark_in" :
             outputs = self.generator(landmarks)
-        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in" or self.inpaint_type == "face_rotate":
+        elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in" or self.inpaint_type == "face_rotate" or self.inpaint_type == "face_rotate_wide":
             images = self.augwrapper(images)
             outputs = self.generator(landmarks,images)
         elif self.inpaint_type == "faceshifter":
