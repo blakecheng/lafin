@@ -41,9 +41,9 @@ class Dataset(torch.utils.data.Dataset):
         if root is not None:
             self.data = [os.path.join(root,"images",i) for i in self.data]
             self.mask_data = [os.path.join(root,"masks_face" if mask_type=="face" else "masks",i) for i in self.mask_data]
-            self.landmark_data = [os.path.join(root,"landmarks",i) for i in self.landmark_data]
+            self.landmark_data = [os.path.join(root,"landmarks" if landmark_type=="landmark" else landmark_type,i) for i in self.landmark_data]
         
-
+        self.landmark_type = landmark_type
         self.input_size = config.INPUT_SIZE
         self.mask = config.MASK
         # in test mode, there's a one-to-one relationship between mask and image
@@ -55,13 +55,19 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         try:
-            item = self.load_item(index)
+            if self.landmark_type=="landmarks":
+                item = self.load_item(index)
+            else:
+                item = self.load_item_render(index)
         except:
-            print("loading the %d th data error"%index)
+            print("loading the %d th data error，path: %s"%(index,self.landmark_data[index]))
             while True:
                 index = random.randint(0, len(self) - 1)
                 try:
-                    item = self.load_item(index)
+                    if self.landmark_type=="landmarks":
+                        item = self.load_item(index)
+                    else:
+                        item = self.load_item_render(index)
                     break
                 except Exception as ex:
                     print("Error: %s"%ex)
@@ -72,6 +78,29 @@ class Dataset(torch.utils.data.Dataset):
     def load_name(self, index):
         name = self.data[index]
         return os.path.basename(name)
+    
+
+    def load_item_render(self,index):
+        size = self.input_size
+        # load image
+        img = imread(self.data[index])
+        landmark = imread(self.landmark_data[index])
+
+        if size != 0:
+            img = self.resize(img, size, size, centerCrop=True)
+            landmark = self.resize(landmark, size, size, centerCrop=True)
+        
+        mask = self.load_mask(img, index)
+
+        if self.augment and np.random.binomial(1, 0.5) > 0:
+            img = img[:, ::-1, ...]
+            landmark = landmark[:, ::-1, ...]
+            mask = mask[:, ::-1, ...]
+        
+        return self.to_tensor(img),  self.to_tensor(landmark), self.to_tensor(mask)
+
+
+
 
     def load_item(self, index):
 

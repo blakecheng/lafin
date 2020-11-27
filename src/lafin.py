@@ -57,9 +57,10 @@ class Lafin():
 
             elif self.config.MODEL == 2:
                 self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_INPAINT_LANDMARK_FLIST,
-                                             config.TRAIN_MASK_FLIST,  root = config.DATA_ROOT, augment=True, training=True)
+                                             config.TRAIN_MASK_FLIST,  landmark_type=config.LM_TYPE,root = config.DATA_ROOT, augment=True, training=True)
                 self.val_dataset = Dataset(config, config.VAL_INPAINT_IMAGE_FLIST, config.VAL_INPAINT_LANDMARK_FLIST,
-                                           config.VAL_MASK_FLIST, root = config.DATA_ROOT,augment=True, training=True)
+                                           config.VAL_MASK_FLIST, landmark_type=config.LM_TYPE,root = config.DATA_ROOT,augment=True, training=True)
+                ## !!!!!!!!!!!!!!!!!!!!!!! ####
                 self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
         
         
@@ -160,12 +161,12 @@ class Lafin():
                 else:
                     images, landmarks, masks = self.cuda(*items)
 
-                landmarks[landmarks >= self.config.INPUT_SIZE] = self.config.INPUT_SIZE - 1
-                landmarks[landmarks < 0] = 0
+                
                 # edge model
                 if model == 1:
                     # train
-
+                    landmarks[landmarks >= self.config.INPUT_SIZE] = self.config.INPUT_SIZE - 1
+                    landmarks[landmarks < 0] = 0
                     landmarks_output, loss, logs = self.landmark_model.process(images,masks,landmarks)
 
                     # backward
@@ -211,14 +212,14 @@ class Lafin():
                 # inpaint model
 
                 elif model == 2:
-                    landmarks[landmarks>=self.config.INPUT_SIZE] = self.config.INPUT_SIZE-1
-                    landmarks[landmarks<0] = 0
-
-                    landmark_map = torch.zeros((self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
-
-                    for i in range(landmarks.shape[0]):
-                        landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
-                    
+                    if (hasattr(self.config, 'LM_TYPE') and self.config.LM_TYPE!="landmark"):
+                        landmark_map = torch.cat((landmarks,torch.zeros(self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE).cuda()),dim=1)
+                    else:
+                        landmarks[landmarks>=self.config.INPUT_SIZE] = self.config.INPUT_SIZE-1
+                        landmarks[landmarks<0] = 0
+                        landmark_map = torch.zeros((self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
+                        for i in range(landmarks.shape[0]):
+                            landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
                     outputs, gen_loss, dis_loss, logs = self.inpaint_model.process(images,landmark_map,masks,landmarks_points=landmarks)
                     outputs_merged = outputs
 
@@ -610,11 +611,12 @@ class Lafin():
         else:
             images,landmarks,masks = self.cuda(*items)
 
-        landmarks[landmarks>=self.config.INPUT_SIZE-1] = self.config.INPUT_SIZE-1
-        landmarks[landmarks<0] = 0
+        
 
         # landmark model
         if model == 1:
+            landmarks[landmarks>=self.config.INPUT_SIZE-1] = self.config.INPUT_SIZE-1
+            landmarks[landmarks<0] = 0
             iteration = self.landmark_model.iteration
             masked_inputs = (images * (1 - masks))
 
@@ -630,15 +632,21 @@ class Lafin():
 
         # inpaint model
         elif model == 2:
-            landmark_map = torch.zeros((landmarks.shape[0], 1, self.config.INPUT_SIZE, self.config.INPUT_SIZE)).cuda()
-            for i in range(landmarks.shape[0]):
-                landmark_map[i, 0, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1
             iteration = self.inpaint_model.iteration
             inputs = (images * (1 - masks)) + masks
-            for i in range(inputs.shape[0]):
-                inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1-masks[i,0,landmarks[i, :, 1], landmarks[i,:,0]]
 
-            
+            if (hasattr(self.config, 'LM_TYPE') and self.config.LM_TYPE!="landmark"):
+                landmark_map = torch.cat((landmarks,torch.zeros(self.config.SAMPLE_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE).cuda()),dim=1)
+                inputs = landmarks
+            else:
+                landmarks[landmarks>=self.config.INPUT_SIZE] = self.config.INPUT_SIZE-1
+                landmarks[landmarks<0] = 0
+                landmark_map = torch.zeros((self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
+                for i in range(landmarks.shape[0]):
+                    landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
+                for i in range(inputs.shape[0]):
+                    inputs[i, :, landmarks[i, 0:self.config.LANDMARK_POINTS, 1], landmarks[i, 0:self.config.LANDMARK_POINTS, 0]] = 1-masks[i,0,landmarks[i, :, 1], landmarks[i,:,0]]
+
             outputs = self.inpaint_model(images, landmark_map, masks)
             
             if self.config.INPAINTOR == "stylegan_ae_facereenactment" or self.config.INPAINTOR == "stylegan_ae_facereenactment2" or self.config.INPAINTOR == "faceshifter_reenactment2":

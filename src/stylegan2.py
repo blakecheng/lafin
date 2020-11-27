@@ -1801,12 +1801,9 @@ class wide_stylegan_rotate(BaseNetwork):
             self.num_layers = num_layers
         
         self.id_encoder = MultiStyleEncoder(c_in=3,network_capacity=network_capacity,num_layers=num_layers,fmap_max=fmap_max)
-        encoder_ckpt = torch.load('saved_models/model_ir_se50.pth')
-        self.id_encoder.load_state_dict(encoder_ckpt, strict=False)
         self.arc_eval = arc_eval
         if self.arc_eval == True:
             for name, p in self.id_encoder.named_parameters():
-                if name in encoder_ckpt.keys():
                     p.requires_grad=False  
 
         # for name,p in self.id_encoder.named_parameters():
@@ -1881,7 +1878,7 @@ class wide_stylegan_rotate(BaseNetwork):
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
     def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0,zeros_noise=True):
-    
+        landmark_input = x 
         batch_size = x.shape[0]
         image_size = self.image_size
         
@@ -1938,6 +1935,8 @@ class wide_stylegan_rotate(BaseNetwork):
         
         if self.transparent:
             rgb[:, -1:] = torch.clamp(rgb[:, -1:].clone(),0.0,1.0)
+        
+        rgb = rgb + landmark_input
         return rgb
 
 
@@ -1945,7 +1944,7 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
     def __init__(self, image_size, latent_dim, style_depth = 8, network_capacity = 16, num_layers = None, transparent = False, attn_layers = [], fmap_max = 512, num_init_filters=1,arc_eval = True):
         super().__init__()
         from .face_modules.model import Backbone
-        arcface = Backbone(50, 0.6, 'ir_se').cuda()
+        arcface = Backbone(50, 0.6, 'ir_se')
         
         arcface.load_state_dict(torch.load('saved_models/model_ir_se50.pth'), strict=False)
         self.arcface = arcface
@@ -3060,11 +3059,11 @@ class Generator(nn.Module):
     
 
 class Discriminator(nn.Module):
-    def __init__(self, image_size, network_capacity = 16, fq_layers = [], fq_dict_size = 256, attn_layers = [], transparent = False, fmap_max = 512):
+    def __init__(self, image_size, network_capacity = 16, fq_layers = [], fq_dict_size = 256, attn_layers = [], transparent = None, fmap_max = 512):
         super().__init__()
         
         num_layers = int(log2(image_size) - 1)
-        num_init_filters = 3 if not transparent else 4
+        num_init_filters = transparent
 
         blocks = []
         filters = [num_init_filters] + [(network_capacity) * (2 ** i) for i in range(num_layers + 1)]

@@ -115,9 +115,10 @@ class InpaintingModel(BaseModel):
             network_capacity = config.NETWORK_CAPACITY
             arc_eval = config.ARC_EVAL
             is_transparent = True if (hasattr(config, 'LOSS_TYPE') and config.LOSS_TYPE=="learn_mask") else False
+            num_init_filters = 4 if (hasattr(config, 'LM_TYPE') and config.LM_TYPE!="landmark") else 1
             generator = stylegan_rotate(image_size=image_size, \
                 latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
-                num_init_filters = 1, arc_eval=arc_eval,transparent = is_transparent)
+                num_init_filters = num_init_filters, arc_eval=arc_eval,transparent = is_transparent)
         elif self.inpaint_type == "face_rotate_wide":
             print("#####################")
             print("Inpainting_for_face_rotate!")
@@ -128,9 +129,10 @@ class InpaintingModel(BaseModel):
             network_capacity = config.NETWORK_CAPACITY
             arc_eval = config.ARC_EVAL
             is_transparent = True if (hasattr(config, 'LOSS_TYPE') and config.LOSS_TYPE=="learn_mask") else False
+            num_init_filters = 4 if (hasattr(config, 'LM_TYPE') and config.LM_TYPE!="landmark") else 1
             generator = wide_stylegan_rotate(image_size=image_size, \
                 network_capacity=network_capacity,num_layers=num_layers, \
-                num_init_filters = 1, arc_eval=arc_eval,transparent = is_transparent,fmap_max=1024)
+                num_init_filters = num_init_filters, arc_eval=arc_eval,transparent = is_transparent,fmap_max=1024)
         elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             print("#####################")
             print("MSG_Inpainting_for_face_swap, USE stylegan generator, AE landmark!")
@@ -229,7 +231,9 @@ class InpaintingModel(BaseModel):
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
             arc_eval = config.ARC_EVAL
-            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, arc_eval = arc_eval)
+            num_init_filters = 4 if (hasattr(config, 'LM_TYPE') and config.LM_TYPE!="landmark") else 1
+            generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
+                num_init_filters=num_init_filters, arc_eval = arc_eval)
         elif self.inpaint_type == "stylegan2_unet": 
             print("#####################")
             print("USE stylegan generator, unet!")
@@ -283,17 +287,22 @@ class InpaintingModel(BaseModel):
         else:
             generator = InpaintGenerator()
         
+
+        if (hasattr(config, 'LM_TYPE') and self.config.LM_TYPE!="landmark"):
+            in_channels = 7
+        else:
+            in_channels = 4
         #discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
         if self.inpaint_type == "MSG_Inpainting_for_face_swap":
             from src.msg_stylegan2 import msg_stylegan2_lm_id_D
             num_layers = config.NUM_LAYERS -1 
             discriminator = msg_stylegan2_lm_id_D(depth=num_layers)
         elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "lafin":
-            discriminator = Discriminator(4)
+            discriminator = Discriminator(in_channels)
         elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "patch":
-            discriminator = patch_dis(in_channels=4)
+            discriminator = patch_dis(in_channels=in_channels)
         else:
-            discriminator = style_dis(image_size = config.INPUT_SIZE,transparent=True)
+            discriminator = style_dis(image_size = config.INPUT_SIZE,transparent=in_channels)
         
 
         if use_apex == True:
@@ -558,7 +567,7 @@ class InpaintingModel(BaseModel):
         # gen_loss += self.config.TV_LOSS_WEIGHT * tv_loss
 
         # zid loss
-        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks,landmarks_points)
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks,None)
         gen_loss += gen_id_loss
         
         # landmark_loss

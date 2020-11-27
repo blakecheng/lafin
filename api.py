@@ -43,116 +43,21 @@ from src.warp import get_face_mask
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 class inpainting_api():
-    def __init__(self,checkpoint):
+    def __init__(self,checkpoint,cuda_index=0):
         config_path = os.path.join(checkpoint,"config.yml")
         weight_path = os.path.join(checkpoint,"InpaintingModel_gen.pth")
         config = Config(config_path)
-        torch.cuda.set_device(2)
 
         self.inpaint_type = "lafin_origin"
         if hasattr(config, 'INPAINTOR'):
             self.inpaint_type = config.INPAINTOR
             
-            
-        # if  self.inpaint_type == "stylegan2":
-        #     print("#####################")
-        #     print("USE stylegan generator!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     generator = stylegan_L2I_Generator(image_size=image_size,latent_dim=latent_dim)
-        # elif self.inpaint_type == "stylegan2_fixs":
-        #     print("#####################")
-        #     print("USE stylegan generator, fixstyle!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     generator = stylegan_L2I_Generator2(image_size=image_size,latent_dim=latent_dim)
-        # elif self.inpaint_type == "stylegan2_ae": 
-        #     print("#####################")
-        #     print("USE stylegan generator, AE!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     generator = stylegan_L2I_Generator3(image_size=image_size,latent_dim=latent_dim)
-        # elif self.inpaint_type == "stylegan2_ae2":
-        #     print("#####################")
-        #     print("USE stylegan generator, AE expand!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     num_layers = config.NUM_LAYERS
-        #     network_capacity = config.NETWORK_CAPACITY
-        #     generator = stylegan_L2I_Generator_AE(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
-        # elif self.inpaint_type == "s2_ae_landmark_in":
-        #     print("#####################")
-        #     print("USE stylegan generator, AE landmark!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     num_layers = config.NUM_LAYERS
-        #     network_capacity = config.NETWORK_CAPACITY
-        #     generator = stylegan_L2I_Generator_AE_landmark_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
-        # elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
-        #     print("#####################")
-        #     print("USE stylegan generator, AE landmark and arcfaceid!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     num_layers = config.NUM_LAYERS
-        #     network_capacity = config.NETWORK_CAPACITY
-        #     generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
-        # elif self.inpaint_type == "stylegan2_unet": 
-        #     print("#####################")
-        #     print("USE stylegan generator, unet!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     generator = stylegan_L2I_Generator4(image_size=image_size,latent_dim=latent_dim,fmap_max = 2048)
-        # elif self.inpaint_type == "lafin_style": 
-        #     print("#####################")
-        #     print("USE stylegan generator, lafin_style!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     generator = stylegan_L2I_Generator5(image_size=image_size,latent_dim=latent_dim,fmap_max = 2048)
-        # elif self.inpaint_type == "resunet":
-        #     print("#####################")
-        #     print("USE resunet generator!")
-        #     print("#####################\n")
-        #     generator = MultiScaleResUNet(in_nc=4,out_nc=3)
-        # elif self.inpaint_type == "faceshifter_inpaintor_selfref":
-        #     print("#####################")
-        #     print("USE faceshifter inpaintor!")
-        #     print("#####################\n")
-        #     generator = faceshifter_inpaintor()
-        # elif self.inpaint_type == "faceshifter_reenactment2":
-        #     print("#####################")
-        #     print("USE faceshifter inpaintor pairedref!")
-        #     print("#####################\n")
-        #     generator = faceshifter_reenactment2()
-        # elif self.inpaint_type == "faceshifter_reenactment":
-        #     print("#####################")
-        #     print("USE faceshifter inpaintor!")
-        #     print("#####################\n")
-        #     generator = faceshifter_reenactment()
-        # elif self.inpaint_type == "ref_guided":
-        #     print("#####################")
-        #     print("USE ref_guided generator!")
-        #     print("#####################\n")
-        #     image_size = config.INPUT_SIZE
-        #     latent_dim = config.LATENT
-        #     num_layers = config.NUM_LAYERS
-        #     network_capacity = config.NETWORK_CAPACITY
-        #     generator = ref_guided_inpaintor(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers)
-        # else:
-        #     generator = InpaintGenerator()
         self.inpaint_model = InpaintingModel(config)
         generator = self.inpaint_model.generator
 
         self.INPUT_SIZE = config.INPUT_SIZE
         
-        data = torch.load(weight_path,map_location=lambda storage, loc: storage.cuda(2))
+        data = torch.load(weight_path,map_location=lambda storage, loc: storage.cuda(cuda_index))
         generator.load_state_dict(data["generator"])
         generator.eval()
         self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
@@ -166,48 +71,6 @@ class inpainting_api():
 
     def gen_result(self,images, landmarks, masks, id_images=None,Interpolation=False,alpha=0):
         outputs = self.inpaint_model(images, landmarks, masks,id_images,Interpolation=Interpolation,alpha=alpha)
-        # if "stylegan2" in self.inpaint_type:
-        #     images_masked = (images * (1 - masks).float()) + masks
-        #     inputs = torch.cat((images_masked, landmarks), dim=1)
-        #     outputs = self.generator(inputs)
-        # elif self.inpaint_type == "s2_ae_landmark_in" :
-        #     outputs = self.generator(landmarks)
-        # elif self.inpaint_type == "s2_ae_landmark_and_arcfaceis_in":
-        #     outputs = self.generator(landmarks,images)
-        # elif self.inpaint_type == "faceshifter" :
-        #     outputs = self.generator(images,landmarks,masks)
-        # elif self.inpaint_type == "faceshifter_inpaintor_selfref":
-        #     images_masked = (images * (1 - masks).float()) + masks
-        #     inputs = torch.cat((images_masked, landmarks,masks), dim=1)
-        #     ref_images = flip(images,dim=1)
-        #     outputs,z_id,out_id = self.generator(inputs,ref_images)
-        # elif self.inpaint_type == "faceshifter_reenactment2":
-        #     batch_size = images.shape[0]
-        #     # ref_index = torch.randperm(batch_size).cuda()
-        #     ref_index = (torch.arange(batch_size)+1)%batch_size
-        #     ref_landmarks = landmarks[ref_index]
-        #     ref_images = images[ref_index] 
-        #     outputs,z_id,out_id = self.generator(landmarks,ref_images,ref_landmarks)
-        #     return ref_landmarks,ref_images,outputs,z_id,out_id
-        # elif self.inpaint_type == "faceshifter_reenactment":
-        #     batch_size = images.shape[0]
-        #     is_the_same = (torch.rand(batch_size)< 0.2).long().cuda()
-        #     img_index = torch.arange(batch_size).cuda()
-        #     ref_index = img_index*is_the_same.long() + ((img_index+1)%batch_size)*(1-is_the_same).long()
-        #     ref_landmarks = landmarks[ref_index]
-        #     ref_images = images[ref_index]
-        #     outputs,z_id,zatt = self.generator(landmarks,ref_images,ref_landmarks)
-        #     return ref_images,ref_landmarks,outputs,z_id,zatt,is_the_same
-        # elif "ref_guided" in self.inpaint_type:
-        #     outputs = self.generator(images,landmarks,masks)
-        # else:
-        #     images_masked = (images * (1 - masks).float()) + masks
-        #     inputs = torch.cat((images_masked, landmarks), dim=1)
-        #     scaled_masks_quarter = F.interpolate(masks, size=[int(masks.shape[2] / 4), int(masks.shape[3] / 4)],
-        #                                 mode='bilinear', align_corners=True)
-        #     scaled_masks_half = F.interpolate(masks, size=[int(masks.shape[2] / 2), int(masks.shape[3] / 2)],
-        #                                 mode='bilinear', align_corners=True)
-        #     outputs = self.generator(inputs,masks,scaled_masks_half,scaled_masks_quarter) 
         return outputs
 
     def resize(self, img, mask,landmarks, height, width):
