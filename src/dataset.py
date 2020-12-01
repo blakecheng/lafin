@@ -55,7 +55,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         try:
-            if self.landmark_type=="landmarks":
+            if self.landmark_type=="landmark":
                 item = self.load_item(index)
             else:
                 item = self.load_item_render(index)
@@ -64,7 +64,7 @@ class Dataset(torch.utils.data.Dataset):
             while True:
                 index = random.randint(0, len(self) - 1)
                 try:
-                    if self.landmark_type=="landmarks":
+                    if self.landmark_type=="landmark":
                         item = self.load_item(index)
                     else:
                         item = self.load_item_render(index)

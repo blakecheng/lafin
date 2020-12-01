@@ -2024,7 +2024,8 @@ class stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(BaseNetwork):
         # self.single_style = nn.Parameter(torch.randn((1,style_depth,latent_dim)))
         
     def forward(self, x , ref_image,input_noise=None,Interpolation=False,alpha = 0):
-    
+        
+        
         batch_size = x.shape[0]
         image_size = self.image_size
         

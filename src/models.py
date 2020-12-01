@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from .networks import InpaintGenerator, Discriminator
-from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss,New_AdversarialLoss,DICELoss
+from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss,Landmark_loss,New_AdversarialLoss,DICELoss,FeaturematchingLoss
 from .stylegan2 import stylegan_L2I_Generator,stylegan_L2I_Generator2,stylegan_L2I_Generator3,stylegan_L2I_Generator4,stylegan_L2I_Generator5,stylegan_L2I_Generator_AE
 from .stylegan2 import stylegan_L2I_Generator_AE_landmark_in,stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in
 from .stylegan2 import ref_guided_inpaintor,stylegan_ae_facereenactment,stylegan_base_facereenactment,stylegan_base_faceswap,stylegan_base_faceae
@@ -231,7 +231,9 @@ class InpaintingModel(BaseModel):
             num_layers = config.NUM_LAYERS
             network_capacity = config.NETWORK_CAPACITY
             arc_eval = config.ARC_EVAL
-            num_init_filters = 4 if (hasattr(config, 'LM_TYPE') and config.LM_TYPE!="landmark") else 1
+            print(hasattr(config, 'LM_TYPE'), config.LM_TYPE!="landmark")
+            num_init_filters = 4 if ((hasattr(config, 'LM_TYPE') and config.LM_TYPE!="landmark")) else 1
+            print("num_init_filters is ", num_init_filters)
             generator = stylegan_L2I_Generator_AE_landmark_and_arcfaceid_in(image_size=image_size,latent_dim=latent_dim,network_capacity=network_capacity,num_layers=num_layers, \
                 num_init_filters=num_init_filters, arc_eval = arc_eval)
         elif self.inpaint_type == "stylegan2_unet": 
@@ -293,10 +295,16 @@ class InpaintingModel(BaseModel):
         else:
             in_channels = 4
         #discriminator = Discriminator(in_channels=4, use_sigmoid=config.GAN_LOSS != 'hinge')
+
         if self.inpaint_type == "MSG_Inpainting_for_face_swap":
             from src.msg_stylegan2 import msg_stylegan2_lm_id_D
             num_layers = config.NUM_LAYERS -1 
             discriminator = msg_stylegan2_lm_id_D(depth=num_layers)
+        elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "no_landmark":
+            from src.no_landmark import no_landmark_Discriminator
+            discriminator = no_landmark_Discriminator(padding="zero",in_channels=3,out_channels=3,num_channels=64,
+                          max_num_channels=512,embed_channels=512,dis_num_blocks=7,image_size=256,
+                         num_labels=512)
         elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "lafin":
             discriminator = Discriminator(in_channels)
         elif hasattr(config, 'DISCRIMINATOR') and config.DISCRIMINATOR == "patch":
@@ -339,6 +347,9 @@ class InpaintingModel(BaseModel):
         if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
             adversarial_loss = New_AdversarialLoss(gan_type=config.GAN_LOSS).cuda()
             self.dice_loss = DICELoss()
+        elif hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "latent_pose":
+            adversarial_loss = New_AdversarialLoss(gan_type=config.GAN_LOSS).cuda()
+            self.fm_loss = FeaturematchingLoss()
         else:
             adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).cuda()
 
@@ -446,6 +457,44 @@ class InpaintingModel(BaseModel):
     #     ]
 
     #     return outputs, gen_loss, dis_loss, logs
+
+    
+    def get_loss_latent(self,images,landmark,masks,outputs):
+        gen_loss = 0
+        dis_loss = 0
+
+
+        fake_features,real_features,fake_score_G,fake_score_D,real_score = self.discriminator(outputs,images)
+
+        gen_gan_loss, dis_loss = self.adversarial_loss(fake_score_G,fake_score_D,real_score)
+
+        gen_gan_loss = gen_gan_loss * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
+
+        gen_id_loss = self.config.ID_LOSS_WEIGHT* self.id_loss(outputs, images*masks,None)
+        gen_loss += gen_id_loss
+
+        gen_content_loss = self.perceptual_loss(outputs, images*masks)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss
+
+        gen_matching_loss = self.fm_loss(outputs,images*masks)
+        gen_matching_loss = gen_matching_loss * self.config.FM_LOSS_WEIGHT
+        gen_loss += gen_matching_loss
+
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("ggan_l",gen_gan_loss.item()),
+            ("gcontent_l",gen_content_loss.item()),
+            ("gen_id",gen_id_loss.item()),
+            ("gen_fm",gen_matching_loss.item()),
+            ("dLoss",dis_loss.item())
+        ]
+        return outputs, gen_loss, dis_loss, logs
+
+
+
+
 
     def get_loss_inpainting(self,images, landmarks, masks,outputs):
         gen_loss = 0
@@ -1269,9 +1318,11 @@ class InpaintingModel(BaseModel):
         elif self.inpaint_type == "MSG_Inpainting_for_face_swap":
             outputs, gen_loss, dis_loss, logs = self.get_loss_msg(images, landmarks, masks,outputs)
         else:
+            if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "latent_pose":
+                outputs, gen_loss, dis_loss, logs = self.get_loss_latent(images, landmarks, masks,outputs)
             if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "inpainting":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_inpainting(images, landmarks, masks,outputs)
-            if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
+            elif hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_mask(images, landmarks, masks,outputs,landmarks_points)   
             else:
                 outputs, gen_loss, dis_loss, logs = self.get_loss1(images, landmarks, masks,outputs)

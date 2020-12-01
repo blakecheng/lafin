@@ -641,7 +641,7 @@ class Lafin():
             else:
                 landmarks[landmarks>=self.config.INPUT_SIZE] = self.config.INPUT_SIZE-1
                 landmarks[landmarks<0] = 0
-                landmark_map = torch.zeros((self.config.BATCH_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
+                landmark_map = torch.zeros((self.config.SAMPLE_SIZE,1,self.config.INPUT_SIZE,self.config.INPUT_SIZE)).cuda()
                 for i in range(landmarks.shape[0]):
                     landmark_map[i,0,landmarks[i,0:self.config.LANDMARK_POINTS,1],landmarks[i,0:self.config.LANDMARK_POINTS,0]] = 1
                 for i in range(inputs.shape[0]):

@@ -87,6 +87,17 @@ class New_AdversarialLoss(nn.Module):
         return loss_G, loss_D
 
 
+class FeaturematchingLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fm_crit = lambda inputs, targets: sum(
+            [F.l1_loss(input, target.detach()) for input, target in zip(inputs, targets)]) / len(
+            inputs)
+
+    def forward(self, fake_feats,real_feats):
+        return self.fm_crit(fake_feats, real_feats)
+
+
 
 class StyleLoss(nn.Module):
     r"""
@@ -170,8 +181,6 @@ class IDLoss(nn.Module):
             feature_ture, _ = self.arcface(img_true)
             feature_pred, _ = self.arcface(img_pred)
         return  (1 - torch.cosine_similarity(feature_ture, feature_pred, dim=1)).mean()
-
-
 
 
 class PerceptualLoss(nn.Module):
