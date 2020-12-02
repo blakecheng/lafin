@@ -381,7 +381,8 @@ class InpaintingModel(BaseModel):
         self.gen_optimizer = optim.Adam(
             params=filter(lambda p: p.requires_grad,generator.parameters()),
             lr=float(config.LR),
-            betas=(config.BETA1, config.BETA2)
+            betas=(config.BETA1, config.BETA2),
+            eps=1e-5
         )
         if use_apex == True:
             generator, gen_optimizer = amp.initialize(generator, self.gen_optimizer, opt_level="O1")
@@ -1320,7 +1321,7 @@ class InpaintingModel(BaseModel):
         else:
             if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "latent_pose":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_latent(images, landmarks, masks,outputs)
-            if hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "inpainting":
+            elif hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "inpainting":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_inpainting(images, landmarks, masks,outputs)
             elif hasattr(self.config, 'LOSS_TYPE') and self.config.LOSS_TYPE == "learn_mask":
                 outputs, gen_loss, dis_loss, logs = self.get_loss_mask(images, landmarks, masks,outputs,landmarks_points)   

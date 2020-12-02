@@ -7,9 +7,9 @@ import numpy as np
 import torchvision.transforms.functional as F
 from torch.utils.data import DataLoader
 from PIL import Image
-from scipy.misc import imread
+from imageio import imread
 from skimage.color import rgb2gray
-from scipy.misc import imresize
+from cv2 import resize as imresize
 os.system("pwd")
 import sys
 print(sys.path)
@@ -236,7 +236,7 @@ class Dataset(torch.utils.data.Dataset):
             i = (imgw - side) // 2
             img = img[j:j + side, i:i + side, ...]
 
-        img = scipy.misc.imresize(img, [height, width])
+        img = imresize(img, [height, width])
 
         return img
 
