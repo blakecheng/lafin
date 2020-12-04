@@ -400,7 +400,7 @@ class InpaintingModel(BaseModel):
     #     dis_loss = 0
 
 
-    #     # discriminator loss
+    #     # discriminator lossRF
     #     dis_input_real = images
     #     dis_input_fake = outputs.detach()
     #     if self.is_local == True:
@@ -465,7 +465,7 @@ class InpaintingModel(BaseModel):
         dis_loss = 0
 
 
-        fake_features,real_features,fake_score_G,fake_score_D,real_score = self.discriminator(outputs,images)
+        fake_features,real_features,fake_score_G,fake_score_D,real_score = self.discriminator(self.augwrapper(outputs),self.augwrapper(images*masks))
 
         gen_gan_loss, dis_loss = self.adversarial_loss(fake_score_G,fake_score_D,real_score)
 

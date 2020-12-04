@@ -32,7 +32,7 @@ def get_checkpoint(checkpoint_path, s3chekpoint_path):
     i = 1
     while True:
         i = i+1
-        time.sleep(get_time(i))
+        n 
         print("runtime : {} min ".format((time.time() - start) / 60))
         copy_dataset(checkpoint_path, s3chekpoint_path)
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     os.system("pwd ; ls")
     mode = "remote"
     start = time.time()
-
+    mox.file.remove("obs://bucket-2026/lxy/project/visda17/code/fintune.py")
     path_cfg = "2026_face_roate"
     gpu_num = 2
 

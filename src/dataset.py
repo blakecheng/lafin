@@ -236,7 +236,7 @@ class Dataset(torch.utils.data.Dataset):
             i = (imgw - side) // 2
             img = img[j:j + side, i:i + side, ...]
 
-        img = imresize(img, [height, width])
+        img = imresize(img, (height, width))
 
         return img
 
